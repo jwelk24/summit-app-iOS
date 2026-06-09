@@ -26,7 +26,6 @@
       }
     },
     {
-      "parallelizable" : true,
       "target" : {
         "containerPath" : "container:Summit.xcodeproj",
         "identifier" : "9A90E0012FD33A1600FA7078",
