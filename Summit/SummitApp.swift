@@ -1,18 +1,18 @@
-//
-//  SummitApp.swift
-//  Summit
-//
-//  Created by Jayson Welker on 6/5/26.
-//
-
 import SwiftUI
 import SwiftData
 
 @main
 struct SummitApp: App {
-    var sharedModelContainer: ModelContainer = {
+    let sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            AccountModel.self,
+            TransactionModel.self,
+            CategoryGroupModel.self,
+            CategoryModel.self,
+            GoalModel.self,
+            ScheduledItemModel.self,
+            BudgetMonthModel.self,
+            BudgetAllocationModel.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -23,9 +23,17 @@ struct SummitApp: App {
         }
     }()
 
+    @State private var engine = BudgetEngine()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environment(engine)
+                .task {
+                    await MainActor.run {
+                        BudgetEngine.seedIfNeeded(context: sharedModelContainer.mainContext)
+                    }
+                }
         }
         .modelContainer(sharedModelContainer)
     }

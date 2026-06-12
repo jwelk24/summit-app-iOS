@@ -1,22 +1,6 @@
-import Combine
 import SwiftUI
 
-final class AppModel: ObservableObject {
-    @Published var engine: BudgetEngine
-
-    init(engine: BudgetEngine) {
-        self.engine = engine
-    }
-
-    static var preview: AppModel {
-        let engine = BudgetEngine.sample()
-        return AppModel(engine: engine)
-    }
-}
-
 struct RootView: View {
-    @EnvironmentObject private var appModel: AppModel
-
     var body: some View {
         TabView {
             BudgetView()
@@ -25,9 +9,11 @@ struct RootView: View {
             TransactionsView()
                 .tabItem { Label("Transactions", systemImage: "creditcard") }
 
+            NetWorthView()
+                .tabItem { Label("Net Worth", systemImage: "chart.line.uptrend.xyaxis") }
+
             TimelineView()
                 .tabItem { Label("Timeline", systemImage: "calendar") }
         }
     }
 }
-

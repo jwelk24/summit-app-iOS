@@ -1,98 +1,98 @@
-import Combine
 import Foundation
+import SwiftData
 
-final class BudgetEngine: ObservableObject {
-    @Published private(set) var accounts: [Account]
-    @Published private(set) var transactions: [Transaction]
-    @Published private(set) var groups: [CategoryGroup]
-    @Published private(set) var categories: [Category]
-    @Published private(set) var scheduled: [ScheduledItem]
-    @Published private(set) var goals: [Goal]
-    @Published private(set) var months: [BudgetMonth] // keep last few months
+@Observable
+final class BudgetEngine {
+    var selectedYear: Int
+    var selectedMonth: Int
 
-    @Published var selectedYear: Int
-    @Published var selectedMonth: Int
-
-    init(accounts: [Account], transactions: [Transaction], groups: [CategoryGroup], categories: [Category], scheduled: [ScheduledItem], goals: [Goal], months: [BudgetMonth], selectedYear: Int, selectedMonth: Int) {
-        self.accounts = accounts
-        self.transactions = transactions
-        self.groups = groups
-        self.categories = categories
-        self.scheduled = scheduled
-        self.goals = goals
-        self.months = months
-        self.selectedYear = selectedYear
-        self.selectedMonth = selectedMonth
+    init(reference: Date = Date()) {
+        let comps = Calendar.current.dateComponents([.year, .month], from: reference)
+        self.selectedYear = comps.year ?? 2026
+        self.selectedMonth = comps.month ?? 1
     }
 
-    // MARK: - Budget Logic
+    // MARK: - Pure calculations
 
-    func availableToBudget(for year: Int, month: Int) -> Decimal {
+    static func availableToBudget(transactions: [TransactionModel], budgetMonth: BudgetMonthModel?, year: Int, month: Int) -> Decimal {
+        let cal = Calendar.current
         let inflow = transactions
-            .filter { Calendar.current.component(.year, from: $0.date) == year && Calendar.current.component(.month, from: $0.date) == month && $0.amount > 0 }
+            .filter { $0.amount > 0 && cal.component(.year, from: $0.date) == year && cal.component(.month, from: $0.date) == month }
             .reduce(Decimal.zero) { $0 + $1.amount }
-        let assigned = monthRecord(year: year, month: month)?.allocations.values.reduce(Decimal.zero, +) ?? 0
-        let carry = monthRecord(year: year, month: month)?.carryover ?? 0
+        let assigned = budgetMonth?.allocations.reduce(Decimal.zero) { $0 + $1.amount } ?? 0
+        let carry = budgetMonth?.carryover ?? 0
         return inflow + carry - assigned
     }
 
-    func assign(_ amount: Decimal, to categoryId: UUID, year: Int, month: Int) {
-        guard var rec = monthRecord(year: year, month: month) else { return }
-        var alloc = rec.allocations[categoryId] ?? 0
-        alloc += amount
-        rec.allocations[categoryId] = alloc
-        replaceMonth(rec)
-        objectWillChange.send()
+    static func assigned(for category: CategoryModel, in budgetMonth: BudgetMonthModel?) -> Decimal {
+        budgetMonth?.allocations.first(where: { $0.category?.id == category.id })?.amount ?? 0
     }
 
-    func activity(for categoryId: UUID, year: Int, month: Int) -> Decimal {
-        transactions.filter { $0.categoryId == categoryId && Calendar.current.component(.year, from: $0.date) == year && Calendar.current.component(.month, from: $0.date) == month }
+    static func activity(for category: CategoryModel, year: Int, month: Int) -> Decimal {
+        let cal = Calendar.current
+        return category.transactions
+            .filter { cal.component(.year, from: $0.date) == year && cal.component(.month, from: $0.date) == month }
             .reduce(Decimal.zero) { $0 + $1.amount }
     }
 
-    func available(for categoryId: UUID, year: Int, month: Int) -> Decimal {
-        let assigned = monthRecord(year: year, month: month)?.allocations[categoryId] ?? 0
-        let act = activity(for: categoryId, year: year, month: month) // negative for spend
-        return assigned + act
+    static func available(for category: CategoryModel, in budgetMonth: BudgetMonthModel?, year: Int, month: Int) -> Decimal {
+        assigned(for: category, in: budgetMonth) + activity(for: category, year: year, month: month)
     }
 
-    func coverOverspending(from sourceCategoryId: UUID, to targetCategoryId: UUID, amount: Decimal, year: Int, month: Int) {
-        guard var rec = monthRecord(year: year, month: month) else { return }
-        let sourceAssigned = rec.allocations[sourceCategoryId] ?? 0
+    // MARK: - Mutations
+
+    @discardableResult
+    func ensureMonth(year: Int, month: Int, context: ModelContext) -> BudgetMonthModel {
+        let descriptor = FetchDescriptor<BudgetMonthModel>(
+            predicate: #Predicate { $0.year == year && $0.month == month }
+        )
+        if let existing = try? context.fetch(descriptor).first {
+            return existing
+        }
+        let new = BudgetMonthModel(year: year, month: month)
+        context.insert(new)
+        try? context.save()
+        return new
+    }
+
+    func assign(_ amount: Decimal, to category: CategoryModel, in budgetMonth: BudgetMonthModel, context: ModelContext) {
+        if let existing = budgetMonth.allocations.first(where: { $0.category?.id == category.id }) {
+            existing.amount += amount
+        } else {
+            let alloc = BudgetAllocationModel(amount: amount, category: category, month: budgetMonth)
+            context.insert(alloc)
+        }
+        try? context.save()
+    }
+
+    func coverOverspending(from source: CategoryModel, to target: CategoryModel, amount: Decimal, in budgetMonth: BudgetMonthModel, context: ModelContext) {
+        let sourceAlloc = budgetMonth.allocations.first(where: { $0.category?.id == source.id })
+        let sourceAssigned = sourceAlloc?.amount ?? 0
         let newSource = max(0, sourceAssigned - amount)
         let delta = sourceAssigned - newSource
-        let targetAssigned = rec.allocations[targetCategoryId] ?? 0
-        rec.allocations[sourceCategoryId] = newSource
-        rec.allocations[targetCategoryId] = targetAssigned + delta
-        replaceMonth(rec)
-        objectWillChange.send()
+        sourceAlloc?.amount = newSource
+        if let targetAlloc = budgetMonth.allocations.first(where: { $0.category?.id == target.id }) {
+            targetAlloc.amount += delta
+        } else {
+            let alloc = BudgetAllocationModel(amount: delta, category: target, month: budgetMonth)
+            context.insert(alloc)
+        }
+        try? context.save()
     }
 
-    func rollToNextMonth(currentYear: Int, currentMonth: Int) {
-        guard monthRecord(year: currentYear, month: currentMonth) != nil else { return }
+    func rollToNextMonth(from current: BudgetMonthModel, transactions: [TransactionModel], categories: [CategoryModel], context: ModelContext) {
+        let unassigned = Self.availableToBudget(transactions: transactions, budgetMonth: current, year: current.year, month: current.month)
         let overspent = categories.reduce(Decimal.zero) { partial, cat in
-            let avail = available(for: cat.id, year: currentYear, month: currentMonth)
+            let avail = Self.available(for: cat, in: current, year: current.year, month: current.month)
             return partial + min(0, avail)
         }
-        let unassigned = availableToBudget(for: currentYear, month: currentMonth)
-        let carry = max(0, unassigned) // simple scaffold rule
-        let next = nextYearMonth(year: currentYear, month: currentMonth)
-        let nextRec = BudgetMonth(id: UUID(), year: next.year, month: next.month, allocations: [:], carryover: carry + overspent)
-        months.append(nextRec)
+        let carry = max(0, unassigned) + overspent
+        let next = nextYearMonth(year: current.year, month: current.month)
+        let nextMonth = ensureMonth(year: next.year, month: next.month, context: context)
+        nextMonth.carryover = carry
         selectedYear = next.year
         selectedMonth = next.month
-    }
-
-    // MARK: - Helpers
-
-    func monthRecord(year: Int, month: Int) -> BudgetMonth? {
-        months.first { $0.year == year && $0.month == month }
-    }
-
-    private func replaceMonth(_ newValue: BudgetMonth) {
-        if let idx = months.firstIndex(where: { $0.id == newValue.id }) {
-            months[idx] = newValue
-        }
+        try? context.save()
     }
 
     private func nextYearMonth(year: Int, month: Int) -> (year: Int, month: Int) {
@@ -101,54 +101,166 @@ final class BudgetEngine: ObservableObject {
         if m > 12 { m = 1; y += 1 }
         return (y, m)
     }
+
+    // MARK: - Scheduled items
+
+    func postScheduled(_ item: ScheduledItemModel, context: ModelContext) {
+        postOne(item, context: context)
+        try? context.save()
+    }
+
+    func postAllDue(_ items: [ScheduledItemModel], context: ModelContext) {
+        let today = Calendar.current.startOfDay(for: Date())
+        for item in items {
+            var safety = 0
+            while item.nextDate < today, safety < 365 {
+                postOne(item, context: context)
+                safety += 1
+            }
+        }
+        try? context.save()
+    }
+
+    private func postOne(_ item: ScheduledItemModel, context: ModelContext) {
+        let tx = TransactionModel(
+            date: item.nextDate,
+            amount: item.amount,
+            merchant: item.name,
+            memo: nil,
+            cleared: false,
+            account: item.account,
+            category: item.category
+        )
+        context.insert(tx)
+        if item.intervalDays > 0,
+           let next = Calendar.current.date(byAdding: .day, value: item.intervalDays, to: item.nextDate) {
+            item.nextDate = next
+        }
+    }
+
+    // MARK: - Category merge
+
+    func merge(_ source: CategoryModel, into target: CategoryModel, context: ModelContext) {
+        guard source.id != target.id else { return }
+        for tx in source.transactions {
+            tx.category = target
+        }
+        for alloc in source.allocations {
+            if let existing = target.allocations.first(where: { $0.month?.id == alloc.month?.id }) {
+                existing.amount += alloc.amount
+                context.delete(alloc)
+            } else {
+                alloc.category = target
+            }
+        }
+        for goal in source.goals {
+            context.delete(goal)
+        }
+        context.delete(source)
+        try? context.save()
+    }
 }
 
-// MARK: - Sample Data
+// MARK: - Reset
 
 extension BudgetEngine {
-    static func sample(reference: Date = Date()) -> BudgetEngine {
-        var cal = Calendar.current
-        cal.timeZone = .current
+    @MainActor
+    static func resetAllData(context: ModelContext, reference: Date = Date()) {
+        deleteAll(TransactionModel.self, in: context)
+        deleteAll(BudgetAllocationModel.self, in: context)
+        deleteAll(BudgetMonthModel.self, in: context)
+        deleteAll(GoalModel.self, in: context)
+        deleteAll(ScheduledItemModel.self, in: context)
+        deleteAll(CategoryModel.self, in: context)
+        deleteAll(CategoryGroupModel.self, in: context)
+        deleteAll(AccountModel.self, in: context)
+        try? context.save()
+        seedIfNeeded(context: context, reference: reference)
+    }
+
+    @MainActor
+    private static func deleteAll<T: PersistentModel>(_ type: T.Type, in context: ModelContext) {
+        let descriptor = FetchDescriptor<T>()
+        if let items = try? context.fetch(descriptor) {
+            for item in items {
+                context.delete(item)
+            }
+        }
+    }
+}
+
+// MARK: - Seeding
+
+extension BudgetEngine {
+    @MainActor
+    static func seedIfNeeded(context: ModelContext, reference: Date = Date()) {
+        let accountCount = (try? context.fetchCount(FetchDescriptor<AccountModel>())) ?? 0
+        guard accountCount == 0 else { return }
+
+        let cal = Calendar.current
         let comps = cal.dateComponents([.year, .month], from: reference)
-        let year = comps.year ?? 2025
+        let year = comps.year ?? 2026
         let month = comps.month ?? 1
 
-        let checking = Account(name: "Checking", type: .checking, balance: 3200)
-        let savings = Account(name: "Savings", type: .savings, balance: 5000)
+        let checking = AccountModel(name: "Checking", type: .checking, balance: 3800)
+        let savings = AccountModel(name: "Savings", type: .savings, balance: 5000)
+        let creditCard = AccountModel(name: "Credit Card", type: .creditCard, balance: -450)
+        [checking, savings, creditCard].forEach { context.insert($0) }
 
-        let groupNeeds = CategoryGroup(name: "Immediate Obligations", sort: 0)
-        let groupWants = CategoryGroup(name: "True Expenses", sort: 1)
+        let needs = CategoryGroupModel(name: "Needs (Fixed Expenses)", sort: 0)
+        let wants = CategoryGroupModel(name: "Wants (Flexible Expenses)", sort: 1)
+        let savingsDebt = CategoryGroupModel(name: "Savings & Debt", sort: 2)
+        [needs, wants, savingsDebt].forEach { context.insert($0) }
 
-        let rent = Category(groupId: groupNeeds.id, name: "Rent", sort: 0)
-        let groceries = Category(groupId: groupNeeds.id, name: "Groceries", sort: 1)
-        let dining = Category(groupId: groupWants.id, name: "Dining Out", sort: 0)
-        let fun = Category(groupId: groupWants.id, name: "Fun Money", sort: 1)
+        let housing = CategoryModel(name: "Housing", sort: 0, group: needs)
+        let utilitiesCat = CategoryModel(name: "Utilities", sort: 1, group: needs)
+        let groceries = CategoryModel(name: "Groceries", sort: 2, group: needs)
+        let transportation = CategoryModel(name: "Transportation", sort: 3, group: needs)
+        let insurance = CategoryModel(name: "Insurance", sort: 4, group: needs)
 
-        let goalRent = Goal(categoryId: rent.id, type: .monthlyAmount, targetAmount: 1800, targetDate: nil)
-        let goalGroceries = Goal(categoryId: groceries.id, type: .monthlyAmount, targetAmount: 500, targetDate: nil)
+        let diningEntertainment = CategoryModel(name: "Dining Out & Entertainment", sort: 0, group: wants)
+        let subscriptions = CategoryModel(name: "Subscriptions", sort: 1, group: wants)
+        let personalCare = CategoryModel(name: "Personal Care & Clothing", sort: 2, group: wants)
+        let travel = CategoryModel(name: "Vacation & Travel", sort: 3, group: wants)
+        let gifts = CategoryModel(name: "Gifts & Donations", sort: 4, group: wants)
 
-        let paycheck = ScheduledItem(kind: .paycheck, name: "Paycheck", amount: 2500, nextDate: reference, intervalDays: 14, accountId: checking.id)
-        let rentBill = ScheduledItem(kind: .bill, name: "Rent", amount: -1800, nextDate: cal.date(byAdding: .day, value: 10, to: reference)!, intervalDays: 30, accountId: checking.id)
+        let debtRepayment = CategoryModel(name: "Debt Repayment", sort: 0, group: savingsDebt)
+        let savingsInvestments = CategoryModel(name: "Savings & Investments", sort: 1, group: savingsDebt)
 
-        let txs: [Transaction] = [
-            Transaction(accountId: checking.id, date: reference, amount: 2500, merchant: "Employer", memo: "", categoryId: nil, cleared: true),
-            Transaction(accountId: checking.id, date: reference, amount: -120, merchant: "Whole Foods", memo: nil, categoryId: groceries.id, cleared: true),
-            Transaction(accountId: checking.id, date: reference, amount: -45, merchant: "Chipotle", memo: nil, categoryId: dining.id, cleared: true)
+        let allCategories = [
+            housing, utilitiesCat, groceries, transportation, insurance,
+            diningEntertainment, subscriptions, personalCare, travel, gifts,
+            debtRepayment, savingsInvestments,
         ]
+        allCategories.forEach { context.insert($0) }
 
-        let monthRec = BudgetMonth(year: year, month: month, allocations: [rent.id: 1800, groceries.id: 300], carryover: 0)
+        let goalHousing = GoalModel(type: .monthlyAmount, targetAmount: 1800, category: housing)
+        let goalGroceries = GoalModel(type: .monthlyAmount, targetAmount: 500, category: groceries)
+        let goalSavings = GoalModel(type: .monthlyAmount, targetAmount: 400, category: savingsInvestments)
+        [goalHousing, goalGroceries, goalSavings].forEach { context.insert($0) }
 
-        return BudgetEngine(
-            accounts: [checking, savings],
-            transactions: txs,
-            groups: [groupNeeds, groupWants],
-            categories: [rent, groceries, dining, fun],
-            scheduled: [paycheck, rentBill],
-            goals: [goalRent, goalGroceries],
-            months: [monthRec],
-            selectedYear: year,
-            selectedMonth: month
-        )
+        let paycheckDate = cal.date(byAdding: .day, value: 3, to: reference) ?? reference
+        let housingDate = cal.date(byAdding: .day, value: 10, to: reference) ?? reference
+        let utilitiesDate = cal.date(byAdding: .day, value: 15, to: reference) ?? reference
+
+        let paycheck = ScheduledItemModel(kind: .paycheck, name: "Paycheck", amount: 2000, nextDate: paycheckDate, intervalDays: 14, account: checking)
+        let housingBill = ScheduledItemModel(kind: .bill, name: "Rent", amount: -1800, nextDate: housingDate, intervalDays: 30, account: checking, category: housing)
+        let utilitiesBill = ScheduledItemModel(kind: .bill, name: "Utilities", amount: -180, nextDate: utilitiesDate, intervalDays: 30, account: checking, category: utilitiesCat)
+        [paycheck, housingBill, utilitiesBill].forEach { context.insert($0) }
+
+        let tx1 = TransactionModel(date: reference, amount: 2500, merchant: "Employer", cleared: true, account: checking)
+        let tx2 = TransactionModel(date: reference, amount: -120, merchant: "Whole Foods", cleared: true, account: checking, category: groceries)
+        let tx3 = TransactionModel(date: reference, amount: -45, merchant: "Chipotle", cleared: true, account: checking, category: diningEntertainment)
+        [tx1, tx2, tx3].forEach { context.insert($0) }
+
+        let monthRec = BudgetMonthModel(year: year, month: month, carryover: 0)
+        context.insert(monthRec)
+        let allocHousing = BudgetAllocationModel(amount: 1800, category: housing, month: monthRec)
+        let allocGroceries = BudgetAllocationModel(amount: 300, category: groceries, month: monthRec)
+        let allocSavings = BudgetAllocationModel(amount: 400, category: savingsInvestments, month: monthRec)
+        [allocHousing, allocGroceries, allocSavings].forEach { context.insert($0) }
+
+        try? context.save()
     }
 }
 
