@@ -771,7 +771,9 @@ struct CategoriesManagementView: View {
                 Button("Done") { dismiss() }
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                #if os(iOS)
                 EditButton()
+                #endif
                 Button { showingNewGroup = true } label: {
                     Label("Add Group", systemImage: "folder.badge.plus")
                 }
@@ -901,6 +903,7 @@ private struct CategoryEditor: View {
     @State private var goalDate: Date = Date()
 
     @State private var showDeleteAlert = false
+    @State private var showMergeSheet = false
 
     var body: some View {
         NavigationStack {
@@ -938,6 +941,12 @@ private struct CategoryEditor: View {
 
                 if editing != nil {
                     Section {
+                        Button {
+                            showMergeSheet = true
+                        } label: {
+                            Label("Merge Into…", systemImage: "arrow.triangle.merge")
+                        }
+                        .disabled((groups.flatMap(\.categories).count) < 2)
                         Button("Delete Category", role: .destructive) { showDeleteAlert = true }
                     }
                 }
@@ -963,6 +972,13 @@ private struct CategoryEditor: View {
             } message: {
                 let txCount = editing?.transactions.count ?? 0
                 Text("Transactions stay but become uncategorized. \(txCount) transaction(s) affected. Goals and budget allocations for this category will be removed.")
+            }
+            .sheet(isPresented: $showMergeSheet) {
+                if let source = editing {
+                    MergeCategorySheet(source: source) {
+                        dismiss()
+                    }
+                }
             }
         }
     }
@@ -1029,6 +1045,67 @@ private struct CategoryEditor: View {
     }
 }
 
+private struct MergeCategorySheet: View {
+    let source: CategoryModel
+    let onMerged: () -> Void
+
+    @Environment(BudgetEngine.self) private var engine
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    @Query private var categories: [CategoryModel]
+
+    @State private var targetID: UUID?
+    @State private var showConfirm = false
+
+    private var candidates: [CategoryModel] {
+        categories
+            .filter { $0.id != source.id }
+            .sorted(by: { $0.name < $1.name })
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Merge \(source.name) into…") {
+                    Picker("Target", selection: $targetID) {
+                        Text("Select…").tag(UUID?.none)
+                        ForEach(candidates) { cat in
+                            Text(cat.name).tag(Optional(cat.id))
+                        }
+                    }
+                }
+
+                Section {
+                    Text("\(source.transactions.count) transaction(s) and \(source.allocations.count) budget allocation(s) will be re-pointed at the target. The source category and its goal (if any) will be deleted.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Merge Category")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Merge") { showConfirm = true }
+                        .disabled(targetID == nil)
+                }
+            }
+            .alert("Merge?", isPresented: $showConfirm) {
+                Button("Merge", role: .destructive) {
+                    if let target = categories.first(where: { $0.id == targetID }) {
+                        engine.merge(source, into: target, context: context)
+                    }
+                    dismiss()
+                    onMerged()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This cannot be undone. \"\(source.name)\" will be deleted.")
+            }
+        }
+    }
+}
+
 // MARK: - Account Editor
 
 private struct AccountEditor: View {
@@ -1060,8 +1137,12 @@ private struct AccountEditor: View {
                     #else
                     TextField("Balance", text: $balanceText)
                     #endif
+                    #if canImport(UIKit)
                     TextField("Currency Code", text: $currencyCode)
                         .textInputAutocapitalization(.characters)
+                    #else
+                    TextField("Currency Code", text: $currencyCode)
+                    #endif
                 }
 
                 if !type.isAsset {
