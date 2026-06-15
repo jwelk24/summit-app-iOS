@@ -166,6 +166,7 @@ final class BudgetEngine {
 extension BudgetEngine {
     @MainActor
     static func resetAllData(context: ModelContext, reference: Date = Date()) {
+        deleteAll(BalanceSnapshotModel.self, in: context)
         deleteAll(TransactionModel.self, in: context)
         deleteAll(BudgetAllocationModel.self, in: context)
         deleteAll(BudgetMonthModel.self, in: context)

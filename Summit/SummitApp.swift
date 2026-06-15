@@ -13,6 +13,7 @@ struct SummitApp: App {
             ScheduledItemModel.self,
             BudgetMonthModel.self,
             BudgetAllocationModel.self,
+            BalanceSnapshotModel.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

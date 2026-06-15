@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 
 // MARK: - BudgetView
 
@@ -20,9 +21,134 @@ struct BudgetView: View {
         months.first { $0.year == engine.selectedYear && $0.month == engine.selectedMonth }
     }
 
+    private struct MonthEntry: Identifiable, Hashable {
+        let year: Int
+        let month: Int
+        let date: Date
+        var id: Date { date }
+    }
+
+    private var availableMonths: [MonthEntry] {
+        let cal = Calendar.current
+        let now = Date()
+        let comps = cal.dateComponents([.year, .month], from: now)
+        let curY = comps.year ?? 2026
+        let curM = comps.month ?? 1
+        let currentMonthDate = cal.date(from: DateComponents(year: curY, month: curM, day: 1)) ?? now
+        let endDate = cal.date(byAdding: .month, value: 3, to: currentMonthDate) ?? currentMonthDate
+
+        let existingDates = months.compactMap {
+            cal.date(from: DateComponents(year: $0.year, month: $0.month, day: 1))
+        }
+        let earliest = existingDates.min() ?? currentMonthDate
+        let twelveMonthsAgo = cal.date(byAdding: .month, value: -12, to: currentMonthDate) ?? currentMonthDate
+        let startDate = min(earliest, twelveMonthsAgo)
+
+        var result: [MonthEntry] = []
+        var cursor = startDate
+        var safety = 0
+        while cursor <= endDate, safety < 120 {
+            let c = cal.dateComponents([.year, .month], from: cursor)
+            result.append(MonthEntry(year: c.year ?? curY, month: c.month ?? curM, date: cursor))
+            guard let next = cal.date(byAdding: .month, value: 1, to: cursor) else { break }
+            cursor = next
+            safety += 1
+        }
+        return result
+    }
+
+    private var currentMonthIndex: Int? {
+        availableMonths.firstIndex { $0.year == engine.selectedYear && $0.month == engine.selectedMonth }
+    }
+
+    private func navigateMonths(_ delta: Int) {
+        let months = availableMonths
+        guard let i = currentMonthIndex else {
+            if let entry = months.first {
+                engine.selectedYear = entry.year
+                engine.selectedMonth = entry.month
+                _ = engine.ensureMonth(year: entry.year, month: entry.month, context: context)
+            }
+            return
+        }
+        let target = i + delta
+        guard target >= 0 && target < months.count else { return }
+        let entry = months[target]
+        engine.selectedYear = entry.year
+        engine.selectedMonth = entry.month
+        _ = engine.ensureMonth(year: entry.year, month: entry.month, context: context)
+    }
+
+    private var currentMonthLabel: String {
+        let cal = Calendar.current
+        guard let d = cal.date(from: DateComponents(year: engine.selectedYear, month: engine.selectedMonth, day: 1)) else {
+            return "\(engine.selectedMonth)/\(engine.selectedYear)"
+        }
+        return d.formatted(.dateTime.month(.wide).year())
+    }
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button {
+                        navigateMonths(-1)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.bordered)
+                    .clipShape(Circle())
+                    .disabled((currentMonthIndex ?? 0) <= 0)
+                    .accessibilityIdentifier("prevMonthButton")
+
+                    Menu {
+                        ForEach(availableMonths) { entry in
+                            Button {
+                                engine.selectedYear = entry.year
+                                engine.selectedMonth = entry.month
+                                _ = engine.ensureMonth(year: entry.year, month: entry.month, context: context)
+                            } label: {
+                                if entry.year == engine.selectedYear && entry.month == engine.selectedMonth {
+                                    Label(entry.date.formatted(.dateTime.month(.wide).year()), systemImage: "checkmark")
+                                } else {
+                                    Text(entry.date.formatted(.dateTime.month(.wide).year()))
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(currentMonthLabel)
+                                .font(.headline)
+                            Image(systemName: "chevron.down")
+                                .font(.caption2)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.tint.opacity(0.15), in: Capsule())
+                    }
+                    .accessibilityIdentifier("monthSelector")
+
+                    Button {
+                        navigateMonths(1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.headline)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.bordered)
+                    .clipShape(Circle())
+                    .disabled({
+                        let idx = currentMonthIndex ?? 0
+                        return idx >= availableMonths.count - 1
+                    }())
+                    .accessibilityIdentifier("nextMonthButton")
+                    Spacer()
+                }
+                .padding(.horizontal)
+
                 Text("Available to Budget: \(currency(BudgetEngine.availableToBudget(transactions: transactions, budgetMonth: budgetMonth, year: engine.selectedYear, month: engine.selectedMonth)))")
                     .font(.headline)
                     .accessibilityIdentifier("availableToBudgetLabel")
@@ -437,19 +563,74 @@ private struct TransactionEditor: View {
 struct NetWorthView: View {
     @Environment(\.modelContext) private var context
     @Query private var accounts: [AccountModel]
+    @Query private var transactions: [TransactionModel]
 
     @State private var showingNew = false
     @State private var editing: AccountModel?
+    @State private var selectedAccountIDs: Set<UUID>? = nil
+    @State private var timeRange: NetWorthTimeRange = .threeMonths
+    @State private var chartMode: NetWorthChartMode = .combined
+    @State private var showingFilter = false
 
-    private var assets: [AccountModel] {
+    private var filteredAccounts: [AccountModel] {
+        guard let ids = selectedAccountIDs else { return accounts }
+        return accounts.filter { ids.contains($0.id) }
+    }
+    private var filteredAssets: [AccountModel] {
+        filteredAccounts.filter { $0.type.isAsset }
+    }
+    private var filteredLiabilities: [AccountModel] {
+        filteredAccounts.filter { !$0.type.isAsset }
+    }
+    private var totalAssets: Decimal { filteredAssets.reduce(.zero) { $0 + $1.balance } }
+    private var totalLiabilities: Decimal { filteredLiabilities.reduce(.zero) { $0 + abs($1.balance) } }
+    private var netWorth: Decimal { totalAssets - totalLiabilities }
+
+    private var allAssets: [AccountModel] {
         accounts.filter { $0.type.isAsset }.sorted { $0.name < $1.name }
     }
-    private var liabilities: [AccountModel] {
+    private var allLiabilities: [AccountModel] {
         accounts.filter { !$0.type.isAsset }.sorted { $0.name < $1.name }
     }
-    private var totalAssets: Decimal { assets.reduce(.zero) { $0 + $1.balance } }
-    private var totalLiabilities: Decimal { liabilities.reduce(.zero) { $0 + abs($1.balance) } }
-    private var netWorth: Decimal { totalAssets - totalLiabilities }
+
+    private var filterLabel: String {
+        guard let ids = selectedAccountIDs else { return "All accounts" }
+        if ids.isEmpty { return "No accounts selected" }
+        return "\(ids.count) of \(accounts.count) accounts"
+    }
+
+    private var rangeAgoDate: Date {
+        let cal = Calendar.current
+        if let days = timeRange.days,
+           let d = cal.date(byAdding: .day, value: -days, to: Date()) {
+            return d
+        }
+        let earliest = filteredAccounts
+            .flatMap { $0.transactions.map(\.date) + $0.snapshots.map(\.date) }
+            .min()
+        return earliest ?? (cal.date(byAdding: .year, value: -1, to: Date()) ?? Date())
+    }
+
+    private var rangeLabel: String {
+        switch timeRange {
+        case .oneMonth: return "1 month ago"
+        case .threeMonths: return "3 months ago"
+        case .sixMonths: return "6 months ago"
+        case .oneYear: return "1 year ago"
+        case .all: return "start"
+        }
+    }
+
+    private var deltaVsPast: (delta: Decimal, percent: Double?)? {
+        guard !filteredAccounts.isEmpty else { return nil }
+        let past = netWorthAt(rangeAgoDate, accounts: filteredAccounts)
+        let now = netWorthAt(Date(), accounts: filteredAccounts)
+        let delta = now - past
+        let pastDouble = NSDecimalNumber(decimal: past).doubleValue
+        let deltaDouble = NSDecimalNumber(decimal: delta).doubleValue
+        let pct: Double? = abs(pastDouble) > 0.01 ? deltaDouble / abs(pastDouble) * 100 : nil
+        return (delta, pct)
+    }
 
     var body: some View {
         NavigationStack {
@@ -461,6 +642,20 @@ struct NetWorthView: View {
                         Text(currency(netWorth))
                             .font(.title2).bold()
                             .foregroundStyle(netWorth >= 0 ? AnyShapeStyle(Color.green) : AnyShapeStyle(Color.red))
+                    }
+                    if let d = deltaVsPast {
+                        HStack(spacing: 6) {
+                            Image(systemName: d.delta >= 0 ? "arrow.up.right" : "arrow.down.right")
+                            Text(currency(d.delta))
+                            if let pct = d.percent {
+                                Text(String(format: "(%@%.1f%%)", pct >= 0 ? "+" : "", pct))
+                            }
+                            Text("vs \(rangeLabel)")
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(d.delta >= 0 ? AnyShapeStyle(Color.green) : AnyShapeStyle(Color.red))
+                        .accessibilityIdentifier("netWorthDeltaLabel")
                     }
                     HStack {
                         Text("Total Assets").foregroundStyle(.secondary)
@@ -474,18 +669,65 @@ struct NetWorthView: View {
                     }
                 }
 
-                if !assets.isEmpty {
+                Section {
+                    HStack {
+                        Picker("Range", selection: $timeRange) {
+                            ForEach(NetWorthTimeRange.allCases) { r in
+                                Text(r.rawValue).tag(r)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Menu {
+                            Picker("View", selection: $chartMode) {
+                                ForEach(NetWorthChartMode.allCases) { m in
+                                    Label(m.rawValue, systemImage: m.icon).tag(m)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: chartMode.icon)
+                                .frame(width: 28, height: 28)
+                        }
+                        .accessibilityIdentifier("chartModeMenu")
+                    }
+
+                    NetWorthChart(
+                        accounts: filteredAccounts,
+                        transactions: transactions,
+                        range: timeRange,
+                        mode: chartMode
+                    )
+                    .frame(height: 240)
+
+                    Button {
+                        showingFilter = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            Text(filterLabel)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .accessibilityIdentifier("filterAccountsButton")
+                } header: {
+                    Text("Trend")
+                }
+
+                if !allAssets.isEmpty {
                     Section("Assets") {
-                        ForEach(assets) { acc in
+                        ForEach(allAssets) { acc in
                             Button { editing = acc } label: { accountRow(acc) }
                                 .buttonStyle(.plain)
                         }
                     }
                 }
 
-                if !liabilities.isEmpty {
+                if !allLiabilities.isEmpty {
                     Section("Liabilities") {
-                        ForEach(liabilities) { acc in
+                        ForEach(allLiabilities) { acc in
                             Button { editing = acc } label: { accountRow(acc) }
                                 .buttonStyle(.plain)
                         }
@@ -510,6 +752,9 @@ struct NetWorthView: View {
             }
             .sheet(isPresented: $showingNew) { AccountEditor(editing: nil) }
             .sheet(item: $editing) { acc in AccountEditor(editing: acc) }
+            .sheet(isPresented: $showingFilter) {
+                AccountFilterSheet(selectedIDs: $selectedAccountIDs)
+            }
         }
     }
 
@@ -1121,6 +1366,9 @@ private struct AccountEditor: View {
     @State private var didLoad = false
     @State private var showDeleteAlert = false
 
+    @State private var showingNewSnapshot = false
+    @State private var editingSnapshot: BalanceSnapshotModel?
+
     var body: some View {
         NavigationStack {
             Form {
@@ -1150,6 +1398,46 @@ private struct AccountEditor: View {
                         Text("For credit cards and loans, enter the balance as a negative number (e.g. -450).")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let acc = editing {
+                    Section {
+                        let snaps = acc.snapshots.sorted(by: { $0.date > $1.date })
+                        if snaps.isEmpty {
+                            Text("No snapshots yet. Snapshots are point-in-time balances used to anchor the net-worth chart when transaction history is incomplete.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(snaps) { snap in
+                                Button { editingSnapshot = snap } label: {
+                                    HStack {
+                                        Text(snap.date, style: .date)
+                                        Spacer()
+                                        Text(currency(snap.balance))
+                                            .foregroundStyle(.secondary)
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .onDelete { offsets in
+                                for i in offsets {
+                                    context.delete(snaps[i])
+                                }
+                                try? context.save()
+                            }
+                        }
+                        Button {
+                            showingNewSnapshot = true
+                        } label: {
+                            Label("Add Snapshot", systemImage: "plus.circle")
+                                .foregroundStyle(.tint)
+                        }
+                    } header: {
+                        Text("Balance History")
                     }
                 }
 
@@ -1183,6 +1471,16 @@ private struct AccountEditor: View {
                      ? "This account has no transactions."
                      : "This will also delete \(txCount) transaction(s) in this account.")
             }
+            .sheet(isPresented: $showingNewSnapshot) {
+                if let acc = editing {
+                    SnapshotEditor(account: acc, editing: nil)
+                }
+            }
+            .sheet(item: $editingSnapshot) { snap in
+                if let acc = editing {
+                    SnapshotEditor(account: acc, editing: snap)
+                }
+            }
         }
     }
 
@@ -1209,6 +1507,92 @@ private struct AccountEditor: View {
         } else {
             let a = AccountModel(name: trimmed, type: type, balance: balance, currencyCode: code)
             context.insert(a)
+        }
+        try? context.save()
+        dismiss()
+    }
+}
+
+// MARK: - Snapshot Editor
+
+private struct SnapshotEditor: View {
+    let account: AccountModel
+    let editing: BalanceSnapshotModel?
+
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var date: Date = Date()
+    @State private var balanceText: String = ""
+    @State private var didLoad = false
+    @State private var showDeleteAlert = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Snapshot") {
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    #if canImport(UIKit)
+                    TextField("Balance", text: $balanceText)
+                        .keyboardType(.numbersAndPunctuation)
+                    #else
+                    TextField("Balance", text: $balanceText)
+                    #endif
+                }
+
+                Section {
+                    Text("\(account.name) was worth this amount on the selected date. The chart will use the most recent snapshot before a given date as its anchor, then layer transactions on top.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if editing != nil {
+                    Section {
+                        Button("Delete Snapshot", role: .destructive) { showDeleteAlert = true }
+                    }
+                }
+            }
+            .navigationTitle(editing == nil ? "New Snapshot" : "Edit Snapshot")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(editing == nil ? "Add" : "Save") { save() }
+                        .disabled(Decimal(string: balanceText) == nil)
+                }
+            }
+            .onAppear(perform: loadIfNeeded)
+            .alert("Delete Snapshot?", isPresented: $showDeleteAlert) {
+                Button("Delete", role: .destructive) {
+                    if let s = editing {
+                        context.delete(s)
+                        try? context.save()
+                    }
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("The chart will fall back to deriving balance from current value and transactions.")
+            }
+        }
+    }
+
+    private func loadIfNeeded() {
+        guard !didLoad else { return }
+        didLoad = true
+        if let s = editing {
+            date = s.date
+            balanceText = formatPlain(s.balance)
+        }
+    }
+
+    private func save() {
+        guard let balance = Decimal(string: balanceText) else { return }
+        if let s = editing {
+            s.date = date
+            s.balance = balance
+        } else {
+            let s = BalanceSnapshotModel(date: date, balance: balance, account: account)
+            context.insert(s)
         }
         try? context.save()
         dismiss()
@@ -1359,6 +1743,329 @@ private struct ScheduledEditor: View {
         }
         try? context.save()
         dismiss()
+    }
+}
+
+// MARK: - Net Worth Helpers
+
+private func balanceAt(_ date: Date, for account: AccountModel) -> Decimal {
+    let snaps = account.snapshots.sorted { $0.date < $1.date }
+    let anchorSnap = snaps.last(where: { $0.date <= date })
+    if let snap = anchorSnap {
+        let txs = account.transactions.filter { $0.date > snap.date && $0.date <= date }
+        return snap.balance + txs.reduce(Decimal.zero) { $0 + $1.amount }
+    } else {
+        let txs = account.transactions.filter { $0.date > date }
+        return account.balance - txs.reduce(Decimal.zero) { $0 + $1.amount }
+    }
+}
+
+private func netWorthAt(_ date: Date, accounts: [AccountModel]) -> Decimal {
+    accounts.reduce(Decimal.zero) { partial, acc in
+        let b = balanceAt(date, for: acc)
+        return partial + (acc.type.isAsset ? b : -abs(b))
+    }
+}
+
+// MARK: - Net Worth Chart
+
+private enum NetWorthTimeRange: String, CaseIterable, Identifiable {
+    case oneMonth = "1M"
+    case threeMonths = "3M"
+    case sixMonths = "6M"
+    case oneYear = "1Y"
+    case all = "All"
+
+    var id: String { rawValue }
+
+    var days: Int? {
+        switch self {
+        case .oneMonth: return 30
+        case .threeMonths: return 90
+        case .sixMonths: return 180
+        case .oneYear: return 365
+        case .all: return nil
+        }
+    }
+}
+
+private enum NetWorthChartMode: String, CaseIterable, Identifiable {
+    case combined = "Net Worth"
+    case perAccount = "By Account"
+    case assetsLiabilities = "Assets vs Liabilities"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .combined: return "chart.line.uptrend.xyaxis"
+        case .perAccount: return "rectangle.split.3x1"
+        case .assetsLiabilities: return "chart.bar"
+        }
+    }
+}
+
+private struct ChartSeriesPoint: Identifiable {
+    let id = UUID()
+    let date: Date
+    let value: Double
+    let series: String
+}
+
+private struct NetWorthChart: View {
+    let accounts: [AccountModel]
+    let transactions: [TransactionModel]
+    let range: NetWorthTimeRange
+    let mode: NetWorthChartMode
+
+    @State private var rawSelectedDate: Date?
+
+    private var rangeBounds: (start: Date, end: Date) {
+        let now = Date()
+        if let days = range.days,
+           let start = Calendar.current.date(byAdding: .day, value: -days, to: now) {
+            return (start, now)
+        }
+        let earliest = accounts
+            .flatMap { $0.transactions.map(\.date) + $0.snapshots.map(\.date) }
+            .min()
+        let fallback = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+        return (earliest ?? fallback, now)
+    }
+
+    private var sampleInterval: Calendar.Component {
+        switch range {
+        case .oneMonth, .threeMonths: return .day
+        case .sixMonths, .oneYear: return .weekOfYear
+        case .all: return .month
+        }
+    }
+
+    private func sampleDates(in start: Date, _ end: Date) -> [Date] {
+        let cal = Calendar.current
+        var dates: [Date] = []
+        var current = cal.startOfDay(for: start)
+        let stop = cal.startOfDay(for: end)
+        var safety = 0
+        while current <= stop, safety < 2000 {
+            dates.append(current)
+            guard let next = cal.date(byAdding: sampleInterval, value: 1, to: current) else { break }
+            current = next
+            safety += 1
+        }
+        if dates.last != end {
+            dates.append(end)
+        }
+        return dates
+    }
+
+    private var combinedSeries: [ChartSeriesPoint] {
+        let (start, end) = rangeBounds
+        let dates = sampleDates(in: start, end)
+        return dates.map { date in
+            let total = netWorthAt(date, accounts: accounts)
+            return ChartSeriesPoint(date: date, value: NSDecimalNumber(decimal: total).doubleValue, series: "Net Worth")
+        }
+    }
+
+    private var perAccountSeries: [ChartSeriesPoint] {
+        let (start, end) = rangeBounds
+        let dates = sampleDates(in: start, end)
+        var result: [ChartSeriesPoint] = []
+        for acc in accounts {
+            for date in dates {
+                let b = balanceAt(date, for: acc)
+                let signed = acc.type.isAsset ? b : -abs(b)
+                result.append(ChartSeriesPoint(date: date, value: NSDecimalNumber(decimal: signed).doubleValue, series: acc.name))
+            }
+        }
+        return result
+    }
+
+    private var assetsLiabilitiesSeries: [ChartSeriesPoint] {
+        let (start, end) = rangeBounds
+        let dates = sampleDates(in: start, end)
+        var result: [ChartSeriesPoint] = []
+        for date in dates {
+            let assets = accounts.filter { $0.type.isAsset }
+                .reduce(Decimal.zero) { $0 + balanceAt(date, for: $1) }
+            let liabilities = accounts.filter { !$0.type.isAsset }
+                .reduce(Decimal.zero) { $0 + abs(balanceAt(date, for: $1)) }
+            result.append(ChartSeriesPoint(date: date, value: NSDecimalNumber(decimal: assets).doubleValue, series: "Assets"))
+            result.append(ChartSeriesPoint(date: date, value: NSDecimalNumber(decimal: -liabilities).doubleValue, series: "Liabilities"))
+        }
+        return result
+    }
+
+    private var activeSeries: [ChartSeriesPoint] {
+        switch mode {
+        case .combined: return combinedSeries
+        case .perAccount: return perAccountSeries
+        case .assetsLiabilities: return assetsLiabilitiesSeries
+        }
+    }
+
+    private func scrubReadout(at date: Date) -> [(series: String, value: Double, date: Date)] {
+        let data = activeSeries
+        guard !data.isEmpty else { return [] }
+        let bySeries = Dictionary(grouping: data, by: \.series)
+        var readouts: [(String, Double, Date)] = []
+        for (name, points) in bySeries {
+            let sorted = points.sorted { $0.date < $1.date }
+            let nearest = sorted.min(by: { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) })
+            if let n = nearest {
+                readouts.append((name, n.value, n.date))
+            }
+        }
+        return readouts.sorted { $0.0 < $1.0 }
+    }
+
+    var body: some View {
+        let data = activeSeries
+        if accounts.isEmpty {
+            placeholder("Select at least one account to see a trend.")
+        } else if data.count <= 1 {
+            placeholder("Not enough history yet to show a trend.")
+        } else {
+            Chart {
+                ForEach(data) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Balance", point.value)
+                    )
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(by: .value("Series", point.series))
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+
+                    if mode == .combined || mode == .assetsLiabilities {
+                        AreaMark(
+                            x: .value("Date", point.date),
+                            y: .value("Balance", point.value)
+                        )
+                        .interpolationMethod(.monotone)
+                        .foregroundStyle(by: .value("Series", point.series))
+                        .opacity(0.18)
+                    }
+                }
+
+                if let raw = rawSelectedDate {
+                    RuleMark(x: .value("Selected", raw))
+                        .foregroundStyle(Color.gray.opacity(0.4))
+                        .annotation(position: .top, alignment: .center, spacing: 0) {
+                            scrubAnnotation(at: raw)
+                        }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel {
+                        if let n = value.as(Double.self) {
+                            Text(n, format: .currency(code: "USD").notation(.compactName))
+                        }
+                    }
+                }
+            }
+            .chartXSelection(value: $rawSelectedDate)
+        }
+    }
+
+    @ViewBuilder
+    private func scrubAnnotation(at date: Date) -> some View {
+        let readouts = scrubReadout(at: date)
+        if !readouts.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                if let first = readouts.first {
+                    Text(first.date, format: .dateTime.day().month().year())
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(readouts, id: \.series) { r in
+                    HStack(spacing: 6) {
+                        Text(r.series).font(.caption2)
+                        Text(currency(Decimal(r.value))).font(.caption.weight(.semibold))
+                    }
+                }
+            }
+            .padding(6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+            .shadow(radius: 2)
+        }
+    }
+
+    @ViewBuilder
+    private func placeholder(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
+    }
+}
+
+// MARK: - Account Filter Sheet
+
+private struct AccountFilterSheet: View {
+    @Binding var selectedIDs: Set<UUID>?
+
+    @Query private var accounts: [AccountModel]
+    @Environment(\.dismiss) private var dismiss
+
+    private var allIDs: Set<UUID> { Set(accounts.map(\.id)) }
+
+    private var effectiveSelected: Set<UUID> {
+        selectedIDs ?? allIDs
+    }
+
+    private func toggle(_ id: UUID) {
+        var current = effectiveSelected
+        if current.contains(id) {
+            current.remove(id)
+        } else {
+            current.insert(id)
+        }
+        selectedIDs = (current == allIDs) ? nil : current
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(accounts.sorted(by: { $0.name < $1.name })) { acc in
+                    Button {
+                        toggle(acc.id)
+                    } label: {
+                        HStack {
+                            Image(systemName: effectiveSelected.contains(acc.id) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading) {
+                                Text(acc.name)
+                                Text(acc.type.displayName).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(currency(acc.balance))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .navigationTitle("Filter Accounts")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("Select All") { selectedIDs = nil }
+                        Button("Deselect All") { selectedIDs = [] }
+                    } label: {
+                        Image(systemName: "checklist")
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -12,6 +12,9 @@ final class AccountModel {
     @Relationship(deleteRule: .cascade, inverse: \TransactionModel.account)
     var transactions: [TransactionModel]
 
+    @Relationship(deleteRule: .cascade, inverse: \BalanceSnapshotModel.account)
+    var snapshots: [BalanceSnapshotModel]
+
     init(id: UUID = UUID(), name: String, type: AccountType, balance: Decimal = 0, currencyCode: String = "USD") {
         self.id = id
         self.name = name
@@ -19,6 +22,7 @@ final class AccountModel {
         self.balance = balance
         self.currencyCode = currencyCode
         self.transactions = []
+        self.snapshots = []
     }
 }
 
@@ -46,6 +50,7 @@ final class CategoryModel {
     var sort: Int
 
     var group: CategoryGroupModel?
+    var linkedAccount: AccountModel?
 
     @Relationship(deleteRule: .nullify, inverse: \TransactionModel.category)
     var transactions: [TransactionModel]
@@ -56,14 +61,19 @@ final class CategoryModel {
     @Relationship(deleteRule: .cascade, inverse: \BudgetAllocationModel.category)
     var allocations: [BudgetAllocationModel]
 
-    init(id: UUID = UUID(), name: String, sort: Int, group: CategoryGroupModel? = nil) {
+    @Relationship(deleteRule: .nullify, inverse: \TransactionSplitModel.category)
+    var splits: [TransactionSplitModel]
+
+    init(id: UUID = UUID(), name: String, sort: Int, group: CategoryGroupModel? = nil, linkedAccount: AccountModel? = nil) {
         self.id = id
         self.name = name
         self.sort = sort
         self.group = group
+        self.linkedAccount = linkedAccount
         self.transactions = []
         self.goals = []
         self.allocations = []
+        self.splits = []
     }
 }
 
@@ -79,6 +89,9 @@ final class TransactionModel {
     var account: AccountModel?
     var category: CategoryModel?
 
+    @Relationship(deleteRule: .cascade, inverse: \TransactionSplitModel.transaction)
+    var splits: [TransactionSplitModel]
+
     init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, account: AccountModel? = nil, category: CategoryModel? = nil) {
         self.id = id
         self.date = date
@@ -87,6 +100,25 @@ final class TransactionModel {
         self.memo = memo
         self.cleared = cleared
         self.account = account
+        self.category = category
+        self.splits = []
+    }
+}
+
+@Model
+final class TransactionSplitModel {
+    @Attribute(.unique) var id: UUID
+    var amount: Decimal
+    var memo: String?
+
+    var transaction: TransactionModel?
+    var category: CategoryModel?
+
+    init(id: UUID = UUID(), amount: Decimal, memo: String? = nil, transaction: TransactionModel? = nil, category: CategoryModel? = nil) {
+        self.id = id
+        self.amount = amount
+        self.memo = memo
+        self.transaction = transaction
         self.category = category
     }
 }
@@ -165,5 +197,21 @@ final class BudgetAllocationModel {
         self.amount = amount
         self.category = category
         self.month = month
+    }
+}
+
+@Model
+final class BalanceSnapshotModel {
+    @Attribute(.unique) var id: UUID
+    var date: Date
+    var balance: Decimal
+
+    var account: AccountModel?
+
+    init(id: UUID = UUID(), date: Date, balance: Decimal, account: AccountModel? = nil) {
+        self.id = id
+        self.date = date
+        self.balance = balance
+        self.account = account
     }
 }
