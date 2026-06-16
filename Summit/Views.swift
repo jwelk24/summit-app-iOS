@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import Charts
+import UniformTypeIdentifiers
 
 // MARK: - BudgetView
 
@@ -15,6 +16,9 @@ struct BudgetView: View {
 
     @State private var showingMove = false
     @State private var showingManageCategories = false
+    @State private var showingRename = false
+
+    @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
     private var budgetMonth: BudgetMonthModel? {
         months.first { $0.year == engine.selectedYear && $0.month == engine.selectedMonth }
@@ -148,10 +152,23 @@ struct BudgetView: View {
                 }
                 .padding(.horizontal)
 
-                Text("Available to Budget: \(currency(BudgetEngine.availableToBudget(transactions: transactions, budgetMonth: budgetMonth, year: engine.selectedYear, month: engine.selectedMonth)))")
-                    .font(.headline)
-                    .accessibilityIdentifier("availableToBudgetLabel")
-                    .padding(.horizontal)
+                HStack {
+                    Text("Available to Budget: \(currency(BudgetEngine.availableToBudget(transactions: transactions, budgetMonth: budgetMonth, year: engine.selectedYear, month: engine.selectedMonth)))")
+                        .font(.headline)
+                        .accessibilityIdentifier("availableToBudgetLabel")
+                    Spacer()
+                    if let aom = BudgetEngine.ageOfMoneyDays(transactions: transactions) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "calendar.badge.clock").font(.caption2)
+                            Text("Age of Money: \(aom)d").font(.caption.weight(.semibold))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.tint.opacity(0.12), in: Capsule())
+                        .accessibilityIdentifier("ageOfMoneyChip")
+                    }
+                }
+                .padding(.horizontal)
 
                 List {
                     ForEach(groups.sorted(by: { $0.sort < $1.sort })) { group in
@@ -168,7 +185,7 @@ struct BudgetView: View {
                     }
                 }
             }
-            .navigationTitle("Budget")
+            .navigationTitle(budgetTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -178,6 +195,14 @@ struct BudgetView: View {
                             Label("Move Money", systemImage: "arrow.left.arrow.right")
                         }
                         .disabled(budgetMonth == nil || categories.count < 2)
+
+                        Button {
+                            let bm = budgetMonth ?? engine.ensureMonth(year: engine.selectedYear, month: engine.selectedMonth, context: context)
+                            engine.autoAssignAvailable(transactions: transactions, categories: categories, budgetMonth: bm, context: context)
+                        } label: {
+                            Label("Auto-Assign to Goals", systemImage: "wand.and.stars")
+                        }
+                        .accessibilityIdentifier("autoAssignButton")
 
                         Button {
                             let bm = engine.ensureMonth(year: engine.selectedYear, month: engine.selectedMonth, context: context)
@@ -193,6 +218,13 @@ struct BudgetView: View {
                         } label: {
                             Label("Manage Categories", systemImage: "folder.badge.gearshape")
                         }
+
+                        Button {
+                            showingRename = true
+                        } label: {
+                            Label("Rename Header", systemImage: "textformat")
+                        }
+                        .accessibilityIdentifier("renameHeaderButton")
                     } label: {
                         Label("Actions", systemImage: "ellipsis.circle")
                     }
@@ -209,7 +241,57 @@ struct BudgetView: View {
                     CategoriesManagementView()
                 }
             }
+            .sheet(isPresented: $showingRename) {
+                RenameHeaderSheet(currentTitle: $budgetTitle)
+            }
             .accessibilityIdentifier("budgetScreen")
+        }
+    }
+}
+
+private struct RenameHeaderSheet: View {
+    @Binding var currentTitle: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: String = ""
+    @State private var didLoad = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Header Title") {
+                    TextField("Budget", text: $draft)
+                }
+                Section {
+                    Text("This changes the title at the top of the Budget screen and the label on the bottom tab.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section {
+                    Button("Reset to Default") {
+                        draft = "Budget"
+                    }
+                }
+            }
+            .navigationTitle("Rename Header")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let trimmed = draft.trimmingCharacters(in: .whitespaces)
+                        currentTitle = trimmed.isEmpty ? "Budget" : trimmed
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                if !didLoad {
+                    draft = currentTitle
+                    didLoad = true
+                }
+            }
         }
     }
 }
@@ -302,6 +384,8 @@ private struct CategoryRow: View {
     @Environment(BudgetEngine.self) private var engine
     @Environment(\.modelContext) private var context
 
+    @Query private var allMonths: [BudgetMonthModel]
+
     let category: CategoryModel
     let budgetMonth: BudgetMonthModel?
     let year: Int
@@ -350,11 +434,69 @@ private struct CategoryRow: View {
                     .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
                     .contentShape(Rectangle())
                     .onTapGesture { startEditing(assigned: assigned) }
+                    .contextMenu { quickAssignMenu(assigned: assigned, available: available) }
             }
         }
         .onChange(of: isFocused) { _, focused in
             if !focused && isEditing { commit() }
         }
+    }
+
+    @ViewBuilder
+    private func quickAssignMenu(assigned: Decimal, available: Decimal) -> some View {
+        let last = BudgetEngine.lastMonthAssigned(for: category, currentYear: year, currentMonth: month, allMonths: allMonths)
+        let avg = BudgetEngine.averageAssigned(for: category, monthsBack: 3, currentYear: year, currentMonth: month, allMonths: allMonths)
+        let goal = category.goals.first
+
+        Button {
+            commitAmount(last)
+        } label: {
+            Label("Match Last Month  \(currency(last))", systemImage: "arrow.uturn.backward")
+        }
+        .disabled(last == 0)
+
+        Button {
+            commitAmount(avg)
+        } label: {
+            Label("3-Month Average  \(currency(avg))", systemImage: "chart.bar")
+        }
+        .disabled(avg == 0)
+
+        if let goal {
+            let target = goal.targetAmount
+            Button {
+                commitAmount(target)
+            } label: {
+                Label("Set to Goal  \(currency(target))", systemImage: "target")
+            }
+
+            let underfunded: Decimal = {
+                switch goal.type {
+                case .monthlyAmount: return max(0, target - assigned)
+                case .savingsTarget, .byDateTarget: return max(0, target - max(0, available))
+                }
+            }()
+            if underfunded > 0 {
+                Button {
+                    commitAmount(assigned + underfunded)
+                } label: {
+                    Label("Fund Underfunded  +\(currency(underfunded))", systemImage: "plus.circle")
+                }
+            }
+        }
+
+        Divider()
+
+        Button(role: .destructive) {
+            commitAmount(0)
+        } label: {
+            Label("Clear", systemImage: "xmark.circle")
+        }
+    }
+
+    private func commitAmount(_ amount: Decimal) {
+        let bm = budgetMonth ?? engine.ensureMonth(year: year, month: month, context: context)
+        engine.setAssigned(amount, to: category, in: bm, context: context)
     }
 
     @ViewBuilder
@@ -414,9 +556,13 @@ private struct CategoryRow: View {
 struct TransactionsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \TransactionModel.date, order: .reverse) private var transactions: [TransactionModel]
+    @Query private var accounts: [AccountModel]
+    @Query private var categories: [CategoryModel]
 
     @State private var showingNew = false
     @State private var editing: TransactionModel?
+    @State private var showingImporter = false
+    @State private var importMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -432,10 +578,23 @@ struct TransactionsView: View {
             .navigationTitle("Transactions")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showingNew = true } label: {
-                        Label("Add Transaction", systemImage: "plus")
+                    Menu {
+                        Button {
+                            showingNew = true
+                        } label: {
+                            Label("New Transaction", systemImage: "plus")
+                        }
+                        .accessibilityIdentifier("addTransactionButton")
+
+                        Button {
+                            showingImporter = true
+                        } label: {
+                            Label("Import CSV", systemImage: "square.and.arrow.down")
+                        }
+                        .accessibilityIdentifier("importCSVButton")
+                    } label: {
+                        Image(systemName: "plus")
                     }
-                    .accessibilityIdentifier("addTransactionButton")
                 }
             }
             .sheet(isPresented: $showingNew) {
@@ -443,6 +602,21 @@ struct TransactionsView: View {
             }
             .sheet(item: $editing) { tx in
                 TransactionEditor(editing: tx)
+            }
+            .fileImporter(
+                isPresented: $showingImporter,
+                allowedContentTypes: [.commaSeparatedText, .text, .plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                handleImport(result: result)
+            }
+            .alert("Import Result", isPresented: Binding(
+                get: { importMessage != nil },
+                set: { if !$0 { importMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { importMessage = nil }
+            } message: {
+                Text(importMessage ?? "")
             }
         }
     }
@@ -453,6 +627,36 @@ struct TransactionsView: View {
         }
         try? context.save()
     }
+
+    private func handleImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            guard url.startAccessingSecurityScopedResource() else {
+                importMessage = "Could not access file."
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            guard let data = try? Data(contentsOf: url),
+                  let content = String(data: data, encoding: .utf8) else {
+                importMessage = "Could not read file as text."
+                return
+            }
+            let res = BudgetEngine.importCSV(content, accounts: accounts, categories: categories, context: context)
+            var lines: [String] = []
+            lines.append("Imported \(res.imported), skipped \(res.skipped).")
+            if !res.errors.isEmpty {
+                let firstFew = res.errors.prefix(3).joined(separator: "\n")
+                lines.append("\n\(firstFew)")
+                if res.errors.count > 3 {
+                    lines.append("…and \(res.errors.count - 3) more.")
+                }
+            }
+            importMessage = lines.joined(separator: "\n")
+        case .failure(let err):
+            importMessage = err.localizedDescription
+        }
+    }
 }
 
 private struct TransactionRow: View {
@@ -460,6 +664,11 @@ private struct TransactionRow: View {
 
     var body: some View {
         HStack {
+            if let color = flagColor(transaction.flagColor) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(color)
+                    .frame(width: 3, height: 28)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(transaction.merchant)
                 HStack(spacing: 6) {
@@ -467,6 +676,9 @@ private struct TransactionRow: View {
                     if let category = transaction.category {
                         Text("·")
                         Text(category.name)
+                    } else if !transaction.splits.isEmpty {
+                        Text("·")
+                        Text("Split")
                     } else {
                         Text("·")
                         Text("Uncategorized")
@@ -492,6 +704,7 @@ private struct SplitDraft: Identifiable, Equatable {
 
 private struct TransactionEditor: View {
     let editing: TransactionModel?
+    var defaultAccount: AccountModel? = nil
 
     @Environment(BudgetEngine.self) private var engine
     @Environment(\.modelContext) private var context
@@ -508,6 +721,7 @@ private struct TransactionEditor: View {
     @State private var accountID: UUID?
     @State private var categoryID: UUID?
     @State private var cleared: Bool = false
+    @State private var flagColorName: String? = nil
     @State private var didLoad: Bool = false
     @State private var splits: [SplitDraft] = []
 
@@ -550,6 +764,17 @@ private struct TransactionEditor: View {
                 TextField("Memo (optional)", text: $memo)
 
                 Toggle("Cleared", isOn: $cleared)
+
+                Picker("Flag", selection: $flagColorName) {
+                    Text("None").tag(String?.none)
+                    ForEach(flagOptions, id: \.name) { option in
+                        HStack {
+                            Circle().fill(option.color).frame(width: 12, height: 12)
+                            Text(option.label)
+                        }
+                        .tag(Optional(option.name))
+                    }
+                }
 
                 Section {
                     if splits.isEmpty {
@@ -669,22 +894,26 @@ private struct TransactionEditor: View {
     private func loadIfNeeded() {
         guard !didLoad else { return }
         didLoad = true
-        guard let tx = editing else { return }
-        isInflow = tx.amount >= 0
-        amountText = formatPlain(abs(tx.amount))
-        merchant = tx.merchant
-        memo = tx.memo ?? ""
-        date = tx.date
-        accountID = tx.account?.id
-        categoryID = tx.category?.id
-        cleared = tx.cleared
-        splits = tx.splits.map { existing in
-            SplitDraft(
-                id: existing.id,
-                amountText: formatSigned(existing.amount),
-                categoryID: existing.category?.id,
-                memo: existing.memo ?? ""
-            )
+        if let tx = editing {
+            isInflow = tx.amount >= 0
+            amountText = formatPlain(abs(tx.amount))
+            merchant = tx.merchant
+            memo = tx.memo ?? ""
+            date = tx.date
+            accountID = tx.account?.id
+            categoryID = tx.category?.id
+            cleared = tx.cleared
+            flagColorName = tx.flagColor
+            splits = tx.splits.map { existing in
+                SplitDraft(
+                    id: existing.id,
+                    amountText: formatSigned(existing.amount),
+                    categoryID: existing.category?.id,
+                    memo: existing.memo ?? ""
+                )
+            }
+        } else if let preselect = defaultAccount {
+            accountID = preselect.id
         }
     }
 
@@ -704,6 +933,7 @@ private struct TransactionEditor: View {
             tx.account = account
             tx.category = category
             tx.cleared = cleared
+            tx.flagColor = flagColorName
             for old in tx.splits {
                 context.delete(old)
             }
@@ -716,6 +946,7 @@ private struct TransactionEditor: View {
                 merchant: merchant,
                 memo: trimmedMemo.isEmpty ? nil : trimmedMemo,
                 cleared: cleared,
+                flagColor: flagColorName,
                 account: account,
                 category: category
             )
@@ -909,8 +1140,15 @@ struct NetWorthView: View {
                 if !allAssets.isEmpty {
                     Section("Assets") {
                         ForEach(allAssets) { acc in
-                            Button { editing = acc } label: { accountRow(acc) }
-                                .buttonStyle(.plain)
+                            NavigationLink {
+                                AccountRegisterView(account: acc)
+                            } label: {
+                                accountRow(acc)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button { editing = acc } label: { Label("Edit", systemImage: "pencil") }
+                                    .tint(.blue)
+                            }
                         }
                     }
                 }
@@ -918,8 +1156,15 @@ struct NetWorthView: View {
                 if !allLiabilities.isEmpty {
                     Section("Liabilities") {
                         ForEach(allLiabilities) { acc in
-                            Button { editing = acc } label: { accountRow(acc) }
-                                .buttonStyle(.plain)
+                            NavigationLink {
+                                AccountRegisterView(account: acc)
+                            } label: {
+                                accountRow(acc)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button { editing = acc } label: { Label("Edit", systemImage: "pencil") }
+                                    .tint(.blue)
+                            }
                         }
                     }
                 }
@@ -956,9 +1201,7 @@ struct NetWorthView: View {
             }
             Spacer()
             Text(currency(acc.balance))
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .monospacedDigit()
         }
         .contentShape(Rectangle())
     }
@@ -976,7 +1219,7 @@ private struct ProjectionPoint: Identifiable {
     let item: ScheduledItemModel
 }
 
-struct TimelineView: View {
+struct HorizonView: View {
     @Environment(BudgetEngine.self) private var engine
     @Environment(\.modelContext) private var context
 
@@ -1075,7 +1318,7 @@ struct TimelineView: View {
                     }
                 }
             }
-            .navigationTitle("Timeline")
+            .navigationTitle("Horizon")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if !due.isEmpty {
@@ -1710,6 +1953,256 @@ private struct AccountEditor: View {
     }
 }
 
+// MARK: - Account Register
+
+struct AccountRegisterView: View {
+    let account: AccountModel
+
+    @Environment(\.modelContext) private var context
+
+    @State private var editingAccount: Bool = false
+    @State private var showingNewTransaction = false
+    @State private var editingTransaction: TransactionModel?
+    @State private var showingReconcile = false
+
+    private var rows: [(transaction: TransactionModel, balanceAfter: Decimal)] {
+        let sorted = account.transactions.sorted { $0.date > $1.date }
+        var result: [(TransactionModel, Decimal)] = []
+        var running = account.balance
+        for tx in sorted {
+            result.append((tx, running))
+            running -= tx.amount
+        }
+        return result
+    }
+
+    private var clearedCount: Int { account.transactions.filter { $0.cleared }.count }
+    private var unclearedCount: Int { account.transactions.filter { !$0.cleared }.count }
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Current Balance").font(.headline)
+                    Spacer()
+                    Text(currency(account.balance))
+                        .font(.title3).bold()
+                        .monospacedDigit()
+                }
+                HStack {
+                    Text("\(clearedCount) cleared · \(unclearedCount) uncleared")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        showingReconcile = true
+                    } label: {
+                        Label("Reconcile", systemImage: "checkmark.seal")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("reconcileButton")
+                }
+            }
+
+            Section("Transactions") {
+                if rows.isEmpty {
+                    Text("No transactions yet. Tap + to add one.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(rows, id: \.transaction.id) { row in
+                        Button { editingTransaction = row.transaction } label: {
+                            registerRow(row.transaction, balanceAfter: row.balanceAfter)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { offsets in
+                        for index in offsets {
+                            context.delete(rows[index].transaction)
+                        }
+                        try? context.save()
+                    }
+                }
+            }
+        }
+        .navigationTitle(account.name)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { editingAccount = true } label: {
+                    Label("Edit Account", systemImage: "info.circle")
+                }
+                .accessibilityIdentifier("editAccountButton")
+                Button { showingNewTransaction = true } label: {
+                    Label("Add Transaction", systemImage: "plus")
+                }
+                .accessibilityIdentifier("addAccountTransactionButton")
+            }
+        }
+        .sheet(isPresented: $editingAccount) {
+            AccountEditor(editing: account)
+        }
+        .sheet(isPresented: $showingNewTransaction) {
+            TransactionEditor(editing: nil, defaultAccount: account)
+        }
+        .sheet(item: $editingTransaction) { tx in
+            TransactionEditor(editing: tx, defaultAccount: nil)
+        }
+        .sheet(isPresented: $showingReconcile) {
+            ReconcileSheet(account: account)
+        }
+    }
+
+    private func registerRow(_ tx: TransactionModel, balanceAfter: Decimal) -> some View {
+        HStack {
+            if let color = flagColor(tx.flagColor) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(color)
+                    .frame(width: 3, height: 32)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Image(systemName: tx.cleared ? "checkmark.circle.fill" : "circle")
+                        .font(.caption2)
+                        .foregroundStyle(tx.cleared ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
+                    Text(tx.merchant)
+                }
+                HStack(spacing: 6) {
+                    Text(tx.date, style: .date)
+                    if let cat = tx.category {
+                        Text("·")
+                        Text(cat.name)
+                    } else if !tx.splits.isEmpty {
+                        Text("·")
+                        Text("Split")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(currency(tx.amount))
+                    .monospacedDigit()
+                    .foregroundStyle(tx.amount < 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.green))
+                Text(currency(balanceAfter))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Reconcile
+
+private struct ReconcileSheet: View {
+    let account: AccountModel
+
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var bankBalanceText: String = ""
+    @State private var pendingDelta: Decimal?
+    @State private var showConfirm = false
+
+    private var entered: Decimal? { Decimal(string: bankBalanceText) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Look at the current balance shown by your bank or card issuer. Enter it below — Summit will mark everything cleared if it matches, or offer to add a Reconciliation Adjustment if it doesn't.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    #if canImport(UIKit)
+                    TextField("Current Balance", text: $bankBalanceText)
+                        .keyboardType(.numbersAndPunctuation)
+                    #else
+                    TextField("Current Balance", text: $bankBalanceText)
+                    #endif
+                } header: {
+                    Text("Reconcile \(account.name)")
+                }
+
+                if let delta = pendingDelta {
+                    Section("Difference") {
+                        HStack {
+                            Text("Summit shows").foregroundStyle(.secondary)
+                            Spacer()
+                            Text(currency(account.balance)).monospacedDigit()
+                        }
+                        HStack {
+                            Text("You entered").foregroundStyle(.secondary)
+                            Spacer()
+                            Text(currency(entered ?? 0)).monospacedDigit()
+                        }
+                        HStack {
+                            Text("Adjustment").bold()
+                            Spacer()
+                            Text(currency(delta))
+                                .monospacedDigit()
+                                .foregroundStyle(delta >= 0 ? AnyShapeStyle(Color.green) : AnyShapeStyle(Color.red))
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Reconcile")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(pendingDelta == nil ? "Next" : "Apply") {
+                        if pendingDelta == nil {
+                            evaluate()
+                        } else {
+                            apply()
+                        }
+                    }
+                    .disabled(entered == nil)
+                }
+            }
+        }
+    }
+
+    private func evaluate() {
+        guard let entered else { return }
+        let delta = entered - account.balance
+        if delta == 0 {
+            markAllCleared()
+            try? context.save()
+            dismiss()
+        } else {
+            pendingDelta = delta
+        }
+    }
+
+    private func apply() {
+        guard let entered, let delta = pendingDelta else { return }
+        let adjustment = TransactionModel(
+            date: Date(),
+            amount: delta,
+            merchant: "Reconciliation Adjustment",
+            memo: nil,
+            cleared: true,
+            account: account,
+            category: nil
+        )
+        context.insert(adjustment)
+        account.balance = entered
+        markAllCleared()
+        try? context.save()
+        dismiss()
+    }
+
+    private func markAllCleared() {
+        for tx in account.transactions where !tx.cleared {
+            tx.cleared = true
+        }
+    }
+}
+
 // MARK: - Snapshot Editor
 
 private struct SnapshotEditor: View {
@@ -2159,7 +2652,7 @@ private struct NetWorthChart: View {
                     AxisTick()
                     AxisValueLabel {
                         if let n = value.as(Double.self) {
-                            Text(n, format: .currency(code: "USD").notation(.compactName))
+                            Text(compactCurrencyString(n))
                         }
                     }
                 }
@@ -2199,6 +2692,29 @@ private struct NetWorthChart: View {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
+    }
+
+    private func compactCurrencyString(_ value: Double) -> String {
+        let sign = value < 0 ? "-" : ""
+        let abs = Swift.abs(value)
+        switch abs {
+        case 1_000_000_000...:
+            return "\(sign)$\(trimmed(abs / 1_000_000_000))B"
+        case 1_000_000...:
+            return "\(sign)$\(trimmed(abs / 1_000_000))M"
+        case 1_000...:
+            return "\(sign)$\(trimmed(abs / 1_000))K"
+        default:
+            return "\(sign)$\(Int(abs.rounded()))"
+        }
+    }
+
+    private func trimmed(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        if rounded == rounded.rounded() {
+            return String(Int(rounded))
+        }
+        return String(format: "%.1f", rounded)
     }
 }
 
@@ -2264,6 +2780,165 @@ private struct AccountFilterSheet: View {
             }
         }
     }
+}
+
+// MARK: - Reports
+
+private struct CategorySpending: Identifiable {
+    let id = UUID()
+    let categoryName: String
+    let amount: Double
+}
+
+private struct MonthlyFlow: Identifiable {
+    let id = UUID()
+    let label: String
+    let income: Double
+    let spending: Double
+}
+
+struct ReportsView: View {
+    @Environment(BudgetEngine.self) private var engine
+
+    @Query private var transactions: [TransactionModel]
+
+    private var spendingByCategory: [CategorySpending] {
+        let cal = Calendar.current
+        let year = engine.selectedYear
+        let month = engine.selectedMonth
+        var totals: [String: Decimal] = [:]
+        for tx in transactions where tx.amount < 0
+            && cal.component(.year, from: tx.date) == year
+            && cal.component(.month, from: tx.date) == month {
+            if tx.splits.isEmpty {
+                let name = tx.category?.name ?? "Uncategorized"
+                totals[name, default: 0] += abs(tx.amount)
+            } else {
+                for split in tx.splits {
+                    let name = split.category?.name ?? "Uncategorized"
+                    totals[name, default: 0] += abs(split.amount)
+                }
+            }
+        }
+        return totals
+            .map { CategorySpending(categoryName: $0.key, amount: NSDecimalNumber(decimal: $0.value).doubleValue) }
+            .sorted { $0.amount > $1.amount }
+    }
+
+    private var sixMonthFlow: [MonthlyFlow] {
+        let cal = Calendar.current
+        let now = Date()
+        var result: [MonthlyFlow] = []
+        for offset in stride(from: 5, through: 0, by: -1) {
+            guard let monthDate = cal.date(byAdding: .month, value: -offset, to: now) else { continue }
+            let comps = cal.dateComponents([.year, .month], from: monthDate)
+            guard let y = comps.year, let m = comps.month else { continue }
+            var income: Decimal = 0
+            var spending: Decimal = 0
+            for tx in transactions where cal.component(.year, from: tx.date) == y && cal.component(.month, from: tx.date) == m {
+                if tx.amount > 0 { income += tx.amount }
+                else { spending += abs(tx.amount) }
+            }
+            let label = monthDate.formatted(.dateTime.month(.abbreviated))
+            result.append(MonthlyFlow(
+                label: label,
+                income: NSDecimalNumber(decimal: income).doubleValue,
+                spending: NSDecimalNumber(decimal: spending).doubleValue
+            ))
+        }
+        return result
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Spending This Month") {
+                    let data = spendingByCategory
+                    if data.isEmpty {
+                        Text("No spending recorded this month yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Chart(data) { item in
+                            BarMark(
+                                x: .value("Amount", item.amount),
+                                y: .value("Category", item.categoryName)
+                            )
+                            .foregroundStyle(Color.accentColor)
+                            .annotation(position: .trailing) {
+                                Text(currency(Decimal(item.amount)))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .chartXAxis {
+                            AxisMarks { value in
+                                AxisGridLine()
+                                AxisValueLabel {
+                                    if let n = value.as(Double.self) {
+                                        Text(n, format: .currency(code: "USD"))
+                                    }
+                                }
+                            }
+                        }
+                        .frame(height: max(220, CGFloat(data.count) * 28))
+                    }
+                }
+
+                Section("Income vs Spending (6 months)") {
+                    let flows = sixMonthFlow
+                    Chart {
+                        ForEach(flows) { flow in
+                            BarMark(
+                                x: .value("Month", flow.label),
+                                y: .value("Amount", flow.income)
+                            )
+                            .foregroundStyle(by: .value("Type", "Income"))
+                            .position(by: .value("Type", "Income"))
+
+                            BarMark(
+                                x: .value("Month", flow.label),
+                                y: .value("Amount", flow.spending)
+                            )
+                            .foregroundStyle(by: .value("Type", "Spending"))
+                            .position(by: .value("Type", "Spending"))
+                        }
+                    }
+                    .chartForegroundStyleScale([
+                        "Income": Color.green,
+                        "Spending": Color.red,
+                    ])
+                    .chartYAxis {
+                        AxisMarks { value in
+                            AxisGridLine()
+                            AxisValueLabel {
+                                if let n = value.as(Double.self) {
+                                    Text(n, format: .currency(code: "USD"))
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 220)
+                }
+            }
+            .navigationTitle("Reports")
+        }
+    }
+}
+
+// MARK: - Flag colors
+
+private let flagOptions: [(name: String, label: String, color: Color)] = [
+    ("red", "Red", .red),
+    ("orange", "Orange", .orange),
+    ("yellow", "Yellow", .yellow),
+    ("green", "Green", .green),
+    ("blue", "Blue", .blue),
+    ("purple", "Purple", .purple),
+]
+
+private func flagColor(_ name: String?) -> Color? {
+    guard let name else { return nil }
+    return flagOptions.first { $0.name == name }?.color
 }
 
 // MARK: - Formatting

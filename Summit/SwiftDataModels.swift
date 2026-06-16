@@ -85,6 +85,7 @@ final class TransactionModel {
     var merchant: String
     var memo: String?
     var cleared: Bool
+    var flagColor: String?
 
     var account: AccountModel?
     var category: CategoryModel?
@@ -92,13 +93,14 @@ final class TransactionModel {
     @Relationship(deleteRule: .cascade, inverse: \TransactionSplitModel.transaction)
     var splits: [TransactionSplitModel]
 
-    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, account: AccountModel? = nil, category: CategoryModel? = nil) {
+    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, account: AccountModel? = nil, category: CategoryModel? = nil) {
         self.id = id
         self.date = date
         self.amount = amount
         self.merchant = merchant
         self.memo = memo
         self.cleared = cleared
+        self.flagColor = flagColor
         self.account = account
         self.category = category
         self.splits = []

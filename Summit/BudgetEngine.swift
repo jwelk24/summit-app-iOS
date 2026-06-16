@@ -137,6 +137,218 @@ final class BudgetEngine {
         return cat
     }
 
+    // MARK: - Age of Money
+
+    static func ageOfMoneyDays(transactions: [TransactionModel], lookback: Int = 10, asOf: Date = Date()) -> Int? {
+        let cal = Calendar.current
+        let sorted = transactions
+            .filter { $0.date <= asOf }
+            .sorted { $0.date < $1.date }
+
+        var queue: [(date: Date, remaining: Decimal)] = []
+        var perOutflow: [Double] = []
+
+        for tx in sorted {
+            if tx.amount > 0 {
+                queue.append((tx.date, tx.amount))
+            } else if tx.amount < 0 {
+                var remaining = abs(tx.amount)
+                var weightedDays: Double = 0
+                var consumedTotal: Decimal = 0
+                while remaining > 0 && !queue.isEmpty {
+                    let consumed = min(remaining, queue[0].remaining)
+                    let days = cal.dateComponents([.day], from: queue[0].date, to: tx.date).day ?? 0
+                    weightedDays += Double(days) * NSDecimalNumber(decimal: consumed).doubleValue
+                    consumedTotal += consumed
+                    remaining -= consumed
+                    queue[0].remaining -= consumed
+                    if queue[0].remaining == 0 {
+                        queue.removeFirst()
+                    }
+                }
+                if consumedTotal > 0 {
+                    let avg = weightedDays / NSDecimalNumber(decimal: consumedTotal).doubleValue
+                    perOutflow.append(avg)
+                }
+            }
+        }
+
+        guard !perOutflow.isEmpty else { return nil }
+        let recent = Array(perOutflow.suffix(lookback))
+        let avg = recent.reduce(0, +) / Double(recent.count)
+        return Int(avg.rounded())
+    }
+
+    // MARK: - CSV Import
+
+    struct ImportResult {
+        var imported: Int
+        var skipped: Int
+        var errors: [String]
+    }
+
+    @MainActor
+    static func importCSV(_ content: String, accounts: [AccountModel], categories: [CategoryModel], context: ModelContext) -> ImportResult {
+        var result = ImportResult(imported: 0, skipped: 0, errors: [])
+        let normalized = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard lines.count > 1 else {
+            result.errors.append("No data rows found.")
+            return result
+        }
+
+        let header = parseCSVLine(lines[0]).map { $0.lowercased() }
+        guard let dateIdx = header.firstIndex(of: "date"),
+              let merchantIdx = header.firstIndex(of: "merchant"),
+              let amountIdx = header.firstIndex(of: "amount") else {
+            result.errors.append("Header must include: date, merchant, amount (also optional: account, category, memo).")
+            return result
+        }
+        let accountIdx = header.firstIndex(of: "account")
+        let categoryIdx = header.firstIndex(of: "category")
+        let memoIdx = header.firstIndex(of: "memo")
+
+        let formatters: [DateFormatter] = ["yyyy-MM-dd", "MM/dd/yyyy", "yyyy/MM/dd"].map { fmt in
+            let f = DateFormatter()
+            f.dateFormat = fmt
+            f.locale = Locale(identifier: "en_US_POSIX")
+            return f
+        }
+
+        func parseDate(_ s: String) -> Date? {
+            for f in formatters { if let d = f.date(from: s) { return d } }
+            return nil
+        }
+
+        for line in lines.dropFirst() {
+            let fields = parseCSVLine(line)
+            guard fields.count > max(dateIdx, merchantIdx, amountIdx) else {
+                result.skipped += 1
+                continue
+            }
+            let dateStr = fields[dateIdx]
+            let merchant = fields[merchantIdx]
+            let amountStr = fields[amountIdx].replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
+            guard let date = parseDate(dateStr), let amount = Decimal(string: amountStr) else {
+                result.skipped += 1
+                result.errors.append("Skipped: \(line)")
+                continue
+            }
+            func at(_ idx: Int?) -> String {
+                guard let i = idx, i < fields.count else { return "" }
+                return fields[i]
+            }
+            let accountName = at(accountIdx)
+            let categoryName = at(categoryIdx)
+            let memo = at(memoIdx)
+
+            let account = accounts.first { $0.name.caseInsensitiveCompare(accountName) == .orderedSame }
+            let category = categories.first { $0.name.caseInsensitiveCompare(categoryName) == .orderedSame }
+
+            let tx = TransactionModel(
+                date: date,
+                amount: amount,
+                merchant: merchant,
+                memo: memo.isEmpty ? nil : memo,
+                cleared: false,
+                account: account,
+                category: category
+            )
+            context.insert(tx)
+            result.imported += 1
+        }
+        try? context.save()
+        return result
+    }
+
+    private static func parseCSVLine(_ line: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        var i = line.startIndex
+        while i < line.endIndex {
+            let c = line[i]
+            if c == "\"" {
+                if inQuotes, line.index(after: i) < line.endIndex, line[line.index(after: i)] == "\"" {
+                    current.append("\"")
+                    i = line.index(after: i)
+                } else {
+                    inQuotes.toggle()
+                }
+            } else if c == "," && !inQuotes {
+                fields.append(current.trimmingCharacters(in: .whitespaces))
+                current = ""
+            } else {
+                current.append(c)
+            }
+            i = line.index(after: i)
+        }
+        fields.append(current.trimmingCharacters(in: .whitespaces))
+        return fields
+    }
+
+    // MARK: - Quick assign helpers
+
+    static func lastMonthAssigned(for category: CategoryModel, currentYear: Int, currentMonth: Int, allMonths: [BudgetMonthModel]) -> Decimal {
+        var prevY = currentYear
+        var prevM = currentMonth - 1
+        if prevM < 1 { prevM = 12; prevY -= 1 }
+        guard let prev = allMonths.first(where: { $0.year == prevY && $0.month == prevM }) else { return 0 }
+        return assigned(for: category, in: prev)
+    }
+
+    static func averageAssigned(for category: CategoryModel, monthsBack: Int, currentYear: Int, currentMonth: Int, allMonths: [BudgetMonthModel]) -> Decimal {
+        var total: Decimal = 0
+        var count: Int = 0
+        var y = currentYear
+        var m = currentMonth - 1
+        for _ in 0..<monthsBack {
+            if m < 1 { m = 12; y -= 1 }
+            if let bm = allMonths.first(where: { $0.year == y && $0.month == m }) {
+                total += assigned(for: category, in: bm)
+                count += 1
+            }
+            m -= 1
+        }
+        return count > 0 ? total / Decimal(count) : 0
+    }
+
+    // MARK: - Auto-assign to goals
+
+    func autoAssignAvailable(transactions: [TransactionModel], categories: [CategoryModel], budgetMonth: BudgetMonthModel, context: ModelContext) {
+        var remaining = Self.availableToBudget(transactions: transactions, budgetMonth: budgetMonth, year: budgetMonth.year, month: budgetMonth.month)
+        guard remaining > 0 else { return }
+
+        let candidates = categories
+            .filter { !$0.goals.isEmpty }
+            .sorted { lhs, rhs in
+                let lgs = lhs.group?.sort ?? Int.max
+                let rgs = rhs.group?.sort ?? Int.max
+                if lgs != rgs { return lgs < rgs }
+                return lhs.sort < rhs.sort
+            }
+
+        for cat in candidates {
+            guard remaining > 0, let goal = cat.goals.first else { continue }
+            let already = Self.assigned(for: cat, in: budgetMonth)
+            let avail = Self.available(for: cat, in: budgetMonth, year: budgetMonth.year, month: budgetMonth.month)
+            let needed: Decimal
+            switch goal.type {
+            case .monthlyAmount:
+                needed = max(0, goal.targetAmount - already)
+            case .savingsTarget, .byDateTarget:
+                needed = max(0, goal.targetAmount - avail)
+            }
+            let toAssign = min(remaining, needed)
+            if toAssign > 0 {
+                setAssigned(already + toAssign, to: cat, in: budgetMonth, context: context)
+                remaining -= toAssign
+            }
+        }
+    }
+
     private func transferAllocation(_ amount: Decimal, from source: CategoryModel, to target: CategoryModel, in bm: BudgetMonthModel, context: ModelContext) {
         if let alloc = bm.allocations.first(where: { $0.category?.id == source.id }) {
             alloc.amount -= amount
