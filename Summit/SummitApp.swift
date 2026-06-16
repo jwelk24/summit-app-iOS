@@ -7,6 +7,7 @@ struct SummitApp: App {
         let schema = Schema([
             AccountModel.self,
             TransactionModel.self,
+            TransactionSplitModel.self,
             CategoryGroupModel.self,
             CategoryModel.self,
             GoalModel.self,

@@ -13,7 +13,6 @@ struct BudgetView: View {
     @Query private var transactions: [TransactionModel]
     @Query private var months: [BudgetMonthModel]
 
-    @State private var assignTarget: CategoryModel?
     @State private var showingMove = false
     @State private var showingManageCategories = false
 
@@ -162,8 +161,7 @@ struct BudgetView: View {
                                     category: cat,
                                     budgetMonth: budgetMonth,
                                     year: engine.selectedYear,
-                                    month: engine.selectedMonth,
-                                    onAssign: { assignTarget = cat }
+                                    month: engine.selectedMonth
                                 )
                             }
                         }
@@ -200,9 +198,6 @@ struct BudgetView: View {
                     }
                     .accessibilityIdentifier("budgetActionsMenu")
                 }
-            }
-            .sheet(item: $assignTarget) { cat in
-                AssignSheet(category: cat)
             }
             .sheet(isPresented: $showingMove) {
                 if let bm = budgetMonth {
@@ -304,59 +299,113 @@ private struct MoveMoneySheet: View {
 }
 
 private struct CategoryRow: View {
+    @Environment(BudgetEngine.self) private var engine
+    @Environment(\.modelContext) private var context
+
     let category: CategoryModel
     let budgetMonth: BudgetMonthModel?
     let year: Int
     let month: Int
-    let onAssign: () -> Void
+
+    @State private var isEditing = false
+    @State private var editText: String = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         let assigned = BudgetEngine.assigned(for: category, in: budgetMonth)
         let activity = BudgetEngine.activity(for: category, year: year, month: month)
         let available = BudgetEngine.available(for: category, in: budgetMonth, year: year, month: month)
-        HStack {
-            VStack(alignment: .leading) {
+
+        HStack(spacing: 10) {
+            goalIndicator(assigned: assigned, available: available)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(category.name)
-                Text("Assigned: \(currency(assigned))  Activity: \(currency(activity))  Available: \(currency(available))")
+                Text("Activity \(currency(activity))  ·  Available \(currency(available))")
                     .font(.caption)
                     .foregroundStyle(available < 0 ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
             }
             Spacer()
-            Button("Assign", action: onAssign)
+            if isEditing {
+                #if canImport(UIKit)
+                TextField("0", text: $editText)
+                    .keyboardType(.decimalPad)
+                    .focused($isFocused)
+                    .multilineTextAlignment(.trailing)
+                    .frame(minWidth: 70)
+                    .submitLabel(.done)
+                    .onSubmit { commit() }
+                #else
+                TextField("0", text: $editText)
+                    .focused($isFocused)
+                    .multilineTextAlignment(.trailing)
+                    .frame(minWidth: 70)
+                    .onSubmit { commit() }
+                #endif
+            } else {
+                Text(currency(assigned))
+                    .monospacedDigit()
+                    .frame(minWidth: 70, alignment: .trailing)
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                    .contentShape(Rectangle())
+                    .onTapGesture { startEditing(assigned: assigned) }
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            if !focused && isEditing { commit() }
         }
     }
-}
 
-private struct AssignSheet: View {
-    let category: CategoryModel
-    @Environment(BudgetEngine.self) private var engine
-    @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
-    @State private var amountText: String = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                #if canImport(UIKit)
-                TextField("Amount", text: $amountText)
-                    .keyboardType(.decimalPad)
-                #else
-                TextField("Amount", text: $amountText)
-                #endif
-            }
-            .navigationTitle("Assign to \(category.name)")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Assign") {
-                        let amount = Decimal(string: amountText) ?? 0
-                        let bm = engine.ensureMonth(year: engine.selectedYear, month: engine.selectedMonth, context: context)
-                        engine.assign(amount, to: category, in: bm, context: context)
-                        dismiss()
-                    }
+    @ViewBuilder
+    private func goalIndicator(assigned: Decimal, available: Decimal) -> some View {
+        if let goal = category.goals.first {
+            let progress = computeProgress(goal: goal, assigned: assigned, available: available)
+            let clamped = min(1.0, max(0.0, progress))
+            let color: Color = progress >= 1.0 ? .green : .accentColor
+            ZStack {
+                Circle().stroke(Color.gray.opacity(0.18), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: clamped)
+                    .stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                if progress >= 1.0 {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.green)
                 }
             }
+            .frame(width: 22, height: 22)
+        } else {
+            Color.clear.frame(width: 22, height: 22)
         }
+    }
+
+    private func computeProgress(goal: GoalModel, assigned: Decimal, available: Decimal) -> Double {
+        let target = NSDecimalNumber(decimal: goal.targetAmount).doubleValue
+        guard target > 0 else { return 0 }
+        switch goal.type {
+        case .monthlyAmount:
+            return NSDecimalNumber(decimal: assigned).doubleValue / target
+        case .savingsTarget, .byDateTarget:
+            return NSDecimalNumber(decimal: max(0, available)).doubleValue / target
+        }
+    }
+
+    private func startEditing(assigned: Decimal) {
+        editText = formatPlain(assigned)
+        isEditing = true
+        DispatchQueue.main.async { isFocused = true }
+    }
+
+    private func commit() {
+        defer {
+            isEditing = false
+            isFocused = false
+        }
+        let amount = Decimal(string: editText) ?? 0
+        let bm = budgetMonth ?? engine.ensureMonth(year: year, month: month, context: context)
+        engine.setAssigned(amount, to: category, in: bm, context: context)
     }
 }
 
@@ -434,9 +483,17 @@ private struct TransactionRow: View {
     }
 }
 
+private struct SplitDraft: Identifiable, Equatable {
+    let id: UUID
+    var amountText: String
+    var categoryID: UUID?
+    var memo: String
+}
+
 private struct TransactionEditor: View {
     let editing: TransactionModel?
 
+    @Environment(BudgetEngine.self) private var engine
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
@@ -452,6 +509,7 @@ private struct TransactionEditor: View {
     @State private var categoryID: UUID?
     @State private var cleared: Bool = false
     @State private var didLoad: Bool = false
+    @State private var splits: [SplitDraft] = []
 
     var body: some View {
         NavigationStack {
@@ -480,16 +538,77 @@ private struct TransactionEditor: View {
                     }
                 }
 
-                Picker("Category", selection: $categoryID) {
-                    Text("Uncategorized").tag(UUID?.none)
-                    ForEach(categories.sorted(by: { $0.name < $1.name })) { cat in
-                        Text(cat.name).tag(Optional(cat.id))
+                if splits.isEmpty {
+                    Picker("Category", selection: $categoryID) {
+                        Text("Uncategorized").tag(UUID?.none)
+                        ForEach(categories.sorted(by: { $0.name < $1.name })) { cat in
+                            Text(cat.name).tag(Optional(cat.id))
+                        }
                     }
                 }
 
                 TextField("Memo (optional)", text: $memo)
 
                 Toggle("Cleared", isOn: $cleared)
+
+                Section {
+                    if splits.isEmpty {
+                        Button {
+                            startSplit()
+                        } label: {
+                            Label("Split Across Categories", systemImage: "rectangle.split.3x1")
+                        }
+                    } else {
+                        ForEach($splits) { $split in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Picker("Category", selection: $split.categoryID) {
+                                    Text("Uncategorized").tag(UUID?.none)
+                                    ForEach(categories.sorted(by: { $0.name < $1.name })) { cat in
+                                        Text(cat.name).tag(Optional(cat.id))
+                                    }
+                                }
+                                #if canImport(UIKit)
+                                TextField("Amount", text: $split.amountText)
+                                    .keyboardType(.decimalPad)
+                                #else
+                                TextField("Amount", text: $split.amountText)
+                                #endif
+                                TextField("Memo (optional)", text: $split.memo)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .onDelete { offsets in
+                            splits.remove(atOffsets: offsets)
+                        }
+
+                        Button {
+                            splits.append(SplitDraft(id: UUID(), amountText: "", categoryID: nil, memo: ""))
+                        } label: {
+                            Label("Add Split", systemImage: "plus.circle")
+                        }
+
+                        HStack {
+                            Text("Splits sum")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(currency(splitsSum))
+                                .font(.caption)
+                                .foregroundStyle(splitMismatch ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
+                        }
+                        if splitMismatch {
+                            Text("Splits must sum to \(currency(signedTotal)).")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+
+                        Button("Remove Splits", role: .destructive) {
+                            splits.removeAll()
+                        }
+                    }
+                } header: {
+                    Text(splits.isEmpty ? "Optional" : "Splits")
+                }
             }
             .navigationTitle(editing == nil ? "New Transaction" : "Edit Transaction")
             .toolbar {
@@ -505,10 +624,46 @@ private struct TransactionEditor: View {
         }
     }
 
+    private var signedTotal: Decimal {
+        let magnitude = Decimal(string: amountText) ?? 0
+        return isInflow ? magnitude : -magnitude
+    }
+
+    private var splitsSum: Decimal {
+        splits.reduce(Decimal.zero) { $0 + (Decimal(string: $1.amountText) ?? 0) }
+    }
+
+    private var splitMismatch: Bool {
+        !splits.isEmpty && splitsSum != signedTotal
+    }
+
     private var canSave: Bool {
         guard accountID != nil, !merchant.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         let magnitude = Decimal(string: amountText) ?? 0
-        return magnitude > 0
+        if magnitude <= 0 { return false }
+        if !splits.isEmpty {
+            if splits.contains(where: { Decimal(string: $0.amountText) == nil }) { return false }
+            if splitMismatch { return false }
+        }
+        return true
+    }
+
+    private func startSplit() {
+        let total = signedTotal
+        splits = [
+            SplitDraft(id: UUID(), amountText: formatSigned(total), categoryID: categoryID, memo: ""),
+            SplitDraft(id: UUID(), amountText: "", categoryID: nil, memo: "")
+        ]
+        categoryID = nil
+    }
+
+    private func formatSigned(_ d: Decimal) -> String {
+        let n = NSDecimalNumber(decimal: d)
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 2
+        f.minimumFractionDigits = 0
+        return f.string(from: n) ?? "0"
     }
 
     private func loadIfNeeded() {
@@ -523,15 +678,24 @@ private struct TransactionEditor: View {
         accountID = tx.account?.id
         categoryID = tx.category?.id
         cleared = tx.cleared
+        splits = tx.splits.map { existing in
+            SplitDraft(
+                id: existing.id,
+                amountText: formatSigned(existing.amount),
+                categoryID: existing.category?.id,
+                memo: existing.memo ?? ""
+            )
+        }
     }
 
     private func save() {
-        let magnitude = Decimal(string: amountText) ?? 0
-        let signed = isInflow ? magnitude : -magnitude
+        let signed = signedTotal
         let account = accounts.first { $0.id == accountID }
-        let category = categories.first { $0.id == categoryID }
+        let category = splits.isEmpty ? categories.first { $0.id == categoryID } : nil
         let trimmedMemo = memo.trimmingCharacters(in: .whitespaces)
 
+        let target: TransactionModel
+        let isNew: Bool
         if let tx = editing {
             tx.amount = signed
             tx.merchant = merchant
@@ -540,6 +704,11 @@ private struct TransactionEditor: View {
             tx.account = account
             tx.category = category
             tx.cleared = cleared
+            for old in tx.splits {
+                context.delete(old)
+            }
+            target = tx
+            isNew = false
         } else {
             let tx = TransactionModel(
                 date: date,
@@ -551,8 +720,29 @@ private struct TransactionEditor: View {
                 category: category
             )
             context.insert(tx)
+            target = tx
+            isNew = true
         }
+
+        for draft in splits {
+            let amount = Decimal(string: draft.amountText) ?? 0
+            let splitCategory = categories.first { $0.id == draft.categoryID }
+            let trimmed = draft.memo.trimmingCharacters(in: .whitespaces)
+            let split = TransactionSplitModel(
+                amount: amount,
+                memo: trimmed.isEmpty ? nil : trimmed,
+                transaction: target,
+                category: splitCategory
+            )
+            context.insert(split)
+        }
+
         try? context.save()
+
+        if isNew {
+            engine.applyCreditCardReservation(for: target, context: context)
+        }
+
         dismiss()
     }
 
@@ -1356,6 +1546,7 @@ private struct MergeCategorySheet: View {
 private struct AccountEditor: View {
     let editing: AccountModel?
 
+    @Environment(BudgetEngine.self) private var engine
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
@@ -1499,16 +1690,22 @@ private struct AccountEditor: View {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let balance = Decimal(string: balanceText) ?? 0
         let code = currencyCode.trimmingCharacters(in: .whitespaces).isEmpty ? "USD" : currencyCode
+        let target: AccountModel
         if let a = editing {
             a.name = trimmed
             a.type = type
             a.balance = balance
             a.currencyCode = code
+            target = a
         } else {
             let a = AccountModel(name: trimmed, type: type, balance: balance, currencyCode: code)
             context.insert(a)
+            target = a
         }
         try? context.save()
+        if target.type == .creditCard {
+            engine.ensurePaymentCategory(for: target, context: context)
+        }
         dismiss()
     }
 }

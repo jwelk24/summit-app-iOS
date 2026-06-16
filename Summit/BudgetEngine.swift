@@ -30,9 +30,21 @@ final class BudgetEngine {
 
     static func activity(for category: CategoryModel, year: Int, month: Int) -> Decimal {
         let cal = Calendar.current
-        return category.transactions
-            .filter { cal.component(.year, from: $0.date) == year && cal.component(.month, from: $0.date) == month }
+        let txTotal = category.transactions
+            .filter { tx in
+                tx.splits.isEmpty &&
+                cal.component(.year, from: tx.date) == year &&
+                cal.component(.month, from: tx.date) == month
+            }
             .reduce(Decimal.zero) { $0 + $1.amount }
+        let splitTotal = category.splits
+            .filter { split in
+                guard let tx = split.transaction else { return false }
+                return cal.component(.year, from: tx.date) == year &&
+                       cal.component(.month, from: tx.date) == month
+            }
+            .reduce(Decimal.zero) { $0 + $1.amount }
+        return txTotal + splitTotal
     }
 
     static func available(for category: CategoryModel, in budgetMonth: BudgetMonthModel?, year: Int, month: Int) -> Decimal {
@@ -63,6 +75,81 @@ final class BudgetEngine {
             context.insert(alloc)
         }
         try? context.save()
+    }
+
+    func setAssigned(_ amount: Decimal, to category: CategoryModel, in budgetMonth: BudgetMonthModel, context: ModelContext) {
+        if let existing = budgetMonth.allocations.first(where: { $0.category?.id == category.id }) {
+            existing.amount = amount
+        } else {
+            let alloc = BudgetAllocationModel(amount: amount, category: category, month: budgetMonth)
+            context.insert(alloc)
+        }
+        try? context.save()
+    }
+
+    // MARK: - Credit Card Reservation
+
+    func applyCreditCardReservation(for tx: TransactionModel, context: ModelContext) {
+        guard let account = tx.account, account.type == .creditCard, tx.amount < 0 else { return }
+        let cal = Calendar.current
+        let c = cal.dateComponents([.year, .month], from: tx.date)
+        guard let year = c.year, let month = c.month else { return }
+        let bm = ensureMonth(year: year, month: month, context: context)
+        guard let payment = paymentCategory(for: account, context: context) else { return }
+
+        if tx.splits.isEmpty, let spending = tx.category, spending.id != payment.id {
+            transferAllocation(abs(tx.amount), from: spending, to: payment, in: bm, context: context)
+        } else {
+            for split in tx.splits {
+                guard let spending = split.category, spending.id != payment.id else { continue }
+                transferAllocation(abs(split.amount), from: spending, to: payment, in: bm, context: context)
+            }
+        }
+        try? context.save()
+    }
+
+    func paymentCategory(for account: AccountModel, context: ModelContext) -> CategoryModel? {
+        let descriptor = FetchDescriptor<CategoryModel>()
+        let all = (try? context.fetch(descriptor)) ?? []
+        return all.first { $0.linkedAccount?.id == account.id }
+    }
+
+    @discardableResult
+    func ensurePaymentCategory(for account: AccountModel, context: ModelContext) -> CategoryModel? {
+        if let existing = paymentCategory(for: account, context: context) { return existing }
+        let groupName = "Credit Card Payments"
+        let groupDescriptor = FetchDescriptor<CategoryGroupModel>(
+            predicate: #Predicate { $0.name == groupName }
+        )
+        let group: CategoryGroupModel
+        if let existing = try? context.fetch(groupDescriptor).first {
+            group = existing
+        } else {
+            let allGroupsDescriptor = FetchDescriptor<CategoryGroupModel>()
+            let all = (try? context.fetch(allGroupsDescriptor)) ?? []
+            let nextSort = (all.map(\.sort).max() ?? -1) + 1
+            group = CategoryGroupModel(name: groupName, sort: nextSort)
+            context.insert(group)
+        }
+        let cat = CategoryModel(name: account.name, sort: 0, group: group, linkedAccount: account)
+        context.insert(cat)
+        try? context.save()
+        return cat
+    }
+
+    private func transferAllocation(_ amount: Decimal, from source: CategoryModel, to target: CategoryModel, in bm: BudgetMonthModel, context: ModelContext) {
+        if let alloc = bm.allocations.first(where: { $0.category?.id == source.id }) {
+            alloc.amount -= amount
+        } else {
+            let alloc = BudgetAllocationModel(amount: -amount, category: source, month: bm)
+            context.insert(alloc)
+        }
+        if let alloc = bm.allocations.first(where: { $0.category?.id == target.id }) {
+            alloc.amount += amount
+        } else {
+            let alloc = BudgetAllocationModel(amount: amount, category: target, month: bm)
+            context.insert(alloc)
+        }
     }
 
     func coverOverspending(from source: CategoryModel, to target: CategoryModel, amount: Decimal, in budgetMonth: BudgetMonthModel, context: ModelContext) {
@@ -145,6 +232,9 @@ final class BudgetEngine {
         for tx in source.transactions {
             tx.category = target
         }
+        for split in source.splits {
+            split.category = target
+        }
         for alloc in source.allocations {
             if let existing = target.allocations.first(where: { $0.month?.id == alloc.month?.id }) {
                 existing.amount += alloc.amount
@@ -167,6 +257,7 @@ extension BudgetEngine {
     @MainActor
     static func resetAllData(context: ModelContext, reference: Date = Date()) {
         deleteAll(BalanceSnapshotModel.self, in: context)
+        deleteAll(TransactionSplitModel.self, in: context)
         deleteAll(TransactionModel.self, in: context)
         deleteAll(BudgetAllocationModel.self, in: context)
         deleteAll(BudgetMonthModel.self, in: context)
@@ -211,7 +302,11 @@ extension BudgetEngine {
         let needs = CategoryGroupModel(name: "Needs (Fixed Expenses)", sort: 0)
         let wants = CategoryGroupModel(name: "Wants (Flexible Expenses)", sort: 1)
         let savingsDebt = CategoryGroupModel(name: "Savings & Debt", sort: 2)
-        [needs, wants, savingsDebt].forEach { context.insert($0) }
+        let cardPayments = CategoryGroupModel(name: "Credit Card Payments", sort: 3)
+        [needs, wants, savingsDebt, cardPayments].forEach { context.insert($0) }
+
+        let creditCardCat = CategoryModel(name: creditCard.name, sort: 0, group: cardPayments, linkedAccount: creditCard)
+        context.insert(creditCardCat)
 
         let housing = CategoryModel(name: "Housing", sort: 0, group: needs)
         let utilitiesCat = CategoryModel(name: "Utilities", sort: 1, group: needs)
