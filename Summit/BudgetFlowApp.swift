@@ -11,6 +11,8 @@ struct RootView: View {
     @AppStorage("horizonIcon") private var horizonIcon: String = "mountain.2"
     @AppStorage("reportsTitle") private var reportsTitle: String = "Reports"
     @AppStorage("reportsIcon") private var reportsIcon: String = "chart.pie"
+    @AppStorage("insightsTitle") private var insightsTitle: String = "Insights"
+    @AppStorage("insightsIcon") private var insightsIcon: String = "sparkles"
 
     var body: some View {
         TabView {
@@ -28,6 +30,9 @@ struct RootView: View {
 
             ReportsView()
                 .tabItem { Label(reportsTitle, systemImage: reportsIcon) }
+
+            AIInsightsView()
+                .tabItem { Label(insightsTitle, systemImage: insightsIcon) }
         }
     }
 }

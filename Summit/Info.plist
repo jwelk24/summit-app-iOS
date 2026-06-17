@@ -6,5 +6,7 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>SummitPlaidBackendURL</key>
+	<string>https://summit-backend-rszx.onrender.com</string>
 </dict>
 </plist>

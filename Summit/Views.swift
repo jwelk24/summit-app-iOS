@@ -1113,6 +1113,22 @@ struct NetWorthView: View {
     @State private var chartMode: NetWorthChartMode = .combined
     @State private var showingFilter = false
 
+    // Plaid state
+    @State private var linkedPlaidItems: [PlaidKeychain.StoredItem] = PlaidKeychain.allItems()
+    @State private var plaidLinkSession: PlaidLinkSession?
+    @State private var pendingMerge: PendingMergeContext?
+    @State private var showingConnections = false
+    @State private var creatingPlaidLink = false
+    @State private var syncingItemId: String?
+    @State private var plaidStatus: String?
+    @State private var plaidStatusIsError = false
+
+    private struct PendingMergeContext: Identifiable {
+        let id = UUID()
+        let item: PlaidKeychain.StoredItem
+        let pending: [PlaidSyncService.PendingPlaidAccount]
+    }
+
     private var filteredAccounts: [AccountModel] {
         guard let ids = selectedAccountIDs else { return accounts }
         return accounts.filter { ids.contains($0.id) }
@@ -1257,6 +1273,45 @@ struct NetWorthView: View {
                     Text("Trend")
                 }
 
+                if !linkedPlaidItems.isEmpty {
+                    Section("Linked Banks") {
+                        ForEach(linkedPlaidItems) { item in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.institutionName ?? item.itemId)
+                                    Text("Linked \(item.linkedAt.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if syncingItemId == item.itemId {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Button("Sync") {
+                                        Task { await syncPlaidItem(item) }
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) { unlinkPlaidItem(item) } label: {
+                                    Label("Unlink", systemImage: "trash")
+                                }
+                            }
+                        }
+                        Button {
+                            Task {
+                                for item in linkedPlaidItems {
+                                    await syncPlaidItem(item)
+                                }
+                            }
+                        } label: {
+                            Label("Sync All", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .disabled(syncingItemId != nil)
+                    }
+                }
+
                 if !allAssets.isEmpty {
                     Section("Assets") {
                         ForEach(allAssets) { acc in
@@ -1299,7 +1354,25 @@ struct NetWorthView: View {
             .navigationTitle(netWorthTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showingNew = true } label: {
+                    Menu {
+                        Button {
+                            Task { await startPlaidLink() }
+                        } label: {
+                            Label(creatingPlaidLink ? "Preparing…" : "Link with Plaid…", systemImage: "link.badge.plus")
+                        }
+                        .disabled(creatingPlaidLink)
+
+                        Button { showingNew = true } label: {
+                            Label("Add Manually…", systemImage: "square.and.pencil")
+                        }
+
+                        if !linkedPlaidItems.isEmpty {
+                            Divider()
+                            Button { showingConnections = true } label: {
+                                Label("Manage Linked Banks…", systemImage: "gearshape")
+                            }
+                        }
+                    } label: {
                         Label("Add Account", systemImage: "plus")
                     }
                     .accessibilityIdentifier("addAccountButton")
@@ -1310,7 +1383,120 @@ struct NetWorthView: View {
             .sheet(isPresented: $showingFilter) {
                 AccountFilterSheet(selectedIDs: $selectedAccountIDs)
             }
+            .sheet(item: $plaidLinkSession) { session in
+                PlaidLinkSheet(session: session, onResult: handlePlaidLinkResult)
+            }
+            .sheet(item: $pendingMerge) { ctx in
+                PlaidMergePickerView(
+                    plaidItemId: ctx.item.itemId,
+                    pendingAccounts: ctx.pending
+                ) {
+                    Task { await syncPlaidItem(ctx.item) }
+                }
+            }
+            .sheet(isPresented: $showingConnections) {
+                NavigationStack {
+                    PlaidConnectionsView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showingConnections = false }
+                            }
+                        }
+                }
+                .onDisappear { linkedPlaidItems = PlaidKeychain.allItems() }
+            }
+            .alert("Plaid", isPresented: Binding(get: { plaidStatus != nil }, set: { if !$0 { plaidStatus = nil } })) {
+                Button("OK") { plaidStatus = nil }
+            } message: {
+                Text(plaidStatus ?? "")
+            }
         }
+    }
+
+    // MARK: - Plaid actions
+
+    private func startPlaidLink() async {
+        creatingPlaidLink = true
+        defer { creatingPlaidLink = false }
+        do {
+            let response = try await PlaidAPI.createLinkToken()
+            guard let hostedURL = URL(string: response.hostedLinkUrl),
+                  let redirect = response.redirectUri.flatMap(URL.init(string:)) else {
+                showPlaidError("Backend returned an invalid link URL.")
+                return
+            }
+            plaidLinkSession = PlaidLinkSession(hostedLinkURL: hostedURL, redirectURL: redirect)
+        } catch {
+            showPlaidError("Couldn't start Plaid Link: \(error.localizedDescription)")
+        }
+    }
+
+    private func handlePlaidLinkResult(_ result: Result<String, PlaidLinkError>) {
+        plaidLinkSession = nil
+        switch result {
+        case .success(let publicToken):
+            Task { await exchangeAndPrepareMerge(publicToken: publicToken) }
+        case .failure(.cancelled):
+            return
+        case .failure(let err):
+            showPlaidError(err.localizedDescription)
+        }
+    }
+
+    private func exchangeAndPrepareMerge(publicToken: String) async {
+        do {
+            let exchange = try await PlaidAPI.exchangePublicToken(publicToken)
+            let stored = PlaidKeychain.StoredItem(
+                itemId: exchange.itemId,
+                accessToken: exchange.accessToken,
+                institutionName: nil,
+                linkedAt: .now
+            )
+            try PlaidKeychain.saveItem(stored)
+            linkedPlaidItems = PlaidKeychain.allItems()
+
+            let service = PlaidSyncService(context: context)
+            let pending = try await service.peekAccounts(for: stored)
+            // If there are no manual accounts to potentially merge into, just
+            // sync directly — but still pop the picker if there are multiple
+            // new Plaid accounts so the user sees what was added.
+            let unlinkedManuals = try service.unlinkedManualAccounts()
+            if pending.contains(where: { !$0.alreadyLinked }) && !unlinkedManuals.isEmpty {
+                pendingMerge = PendingMergeContext(item: stored, pending: pending)
+            } else {
+                await syncPlaidItem(stored)
+            }
+        } catch {
+            showPlaidError("Link exchange failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func syncPlaidItem(_ item: PlaidKeychain.StoredItem) async {
+        syncingItemId = item.itemId
+        defer { syncingItemId = nil }
+        do {
+            let service = PlaidSyncService(context: context)
+            let result = try await service.syncAll(for: item)
+            plaidStatus = "Synced \(result.accounts) acct · tx +\(result.transactionsAdded) ~\(result.transactionsModified) · holdings \(result.holdings) · inv-tx \(result.investmentTransactions) · liab \(result.liabilities)"
+            plaidStatusIsError = false
+            linkedPlaidItems = PlaidKeychain.allItems()
+        } catch {
+            showPlaidError("Sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func unlinkPlaidItem(_ item: PlaidKeychain.StoredItem) {
+        do {
+            try PlaidKeychain.deleteItem(itemId: item.itemId)
+            linkedPlaidItems = PlaidKeychain.allItems()
+        } catch {
+            showPlaidError("Couldn't remove: \(error.localizedDescription)")
+        }
+    }
+
+    private func showPlaidError(_ message: String) {
+        plaidStatus = message
+        plaidStatusIsError = true
     }
 
     private func accountRow(_ acc: AccountModel) -> some View {
