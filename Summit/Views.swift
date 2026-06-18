@@ -681,6 +681,7 @@ struct TransactionsView: View {
     @State private var editing: TransactionModel?
     @State private var showingImporter = false
     @State private var importMessage: String?
+    @State private var showingReceiptScanner = false
 
     var body: some View {
         NavigationStack {
@@ -705,6 +706,13 @@ struct TransactionsView: View {
                         .accessibilityIdentifier("addTransactionButton")
 
                         Button {
+                            showingReceiptScanner = true
+                        } label: {
+                            Label("Scan Receipt…", systemImage: "doc.text.viewfinder")
+                        }
+                        .accessibilityIdentifier("scanReceiptButton")
+
+                        Button {
                             showingImporter = true
                         } label: {
                             Label("Import CSV", systemImage: "square.and.arrow.down")
@@ -720,6 +728,9 @@ struct TransactionsView: View {
             }
             .sheet(item: $editing) { tx in
                 TransactionEditor(editing: tx)
+            }
+            .sheet(isPresented: $showingReceiptScanner) {
+                ReceiptScannerView()
             }
             .fileImporter(
                 isPresented: $showingImporter,
@@ -1634,6 +1645,11 @@ struct HorizonView: View {
                             engine.postAllDue(scheduled, context: context)
                         }
                         .accessibilityIdentifier("postAllDueButton")
+                    }
+                    NavigationLink {
+                        CashFlowForecastView()
+                    } label: {
+                        Label("Forecast", systemImage: "chart.xyaxis.line")
                     }
                     Button { showingNewScheduled = true } label: {
                         Label("Add Scheduled", systemImage: "plus")

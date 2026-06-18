@@ -6,7 +6,42 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9A5F14702FE3A4FF005B7BEC /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A5F146F2FE3A4FF005B7BEC /* WidgetKit.framework */; };
+		9A5F14722FE3A4FF005B7BEC /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A5F14712FE3A4FF005B7BEC /* SwiftUI.framework */; };
+		9A5F14832FE3A500005B7BEC /* SummitWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9A5F146D2FE3A4FF005B7BEC /* SummitWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9A5F14912FE3A671005B7BEC /* SummitWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 9A5F14902FE3A671005B7BEC /* SummitWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
+		9A5F14812FE3A500005B7BEC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A90DFDF2FD33A1400FA7078 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9A5F146C2FE3A4FF005B7BEC;
+			remoteInfo = SummitWidgetsExtension;
+		};
+		9A5F14922FE3A671005B7BEC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A90DFDF2FD33A1400FA7078 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9A5F148F2FE3A671005B7BEC;
+			remoteInfo = "SummitWatch Watch App";
+		};
+		9A5F14A02FE3A673005B7BEC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A90DFDF2FD33A1400FA7078 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9A5F148F2FE3A671005B7BEC;
+			remoteInfo = "SummitWatch Watch App";
+		};
+		9A5F14AA2FE3A673005B7BEC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A90DFDF2FD33A1400FA7078 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9A5F148F2FE3A671005B7BEC;
+			remoteInfo = "SummitWatch Watch App";
+		};
 		9A90DFF92FD33A1600FA7078 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 9A90DFDF2FD33A1400FA7078 /* Project object */;
@@ -23,14 +58,61 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		9A5F14882FE3A500005B7BEC /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				9A5F14832FE3A500005B7BEC /* SummitWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F14B42FE3A673005B7BEC /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				9A5F14912FE3A671005B7BEC /* SummitWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		9A59D87B2FD353850038E040 /* Summit.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Summit.xctestplan; sourceTree = "<group>"; };
+		9A5F146D2FE3A4FF005B7BEC /* SummitWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SummitWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A5F146F2FE3A4FF005B7BEC /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		9A5F14712FE3A4FF005B7BEC /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		9A5F148B2FE3A671005B7BEC /* SummitWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SummitWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A5F14902FE3A671005B7BEC /* SummitWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SummitWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A5F149F2FE3A673005B7BEC /* SummitWatch Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "SummitWatch Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A5F14A92FE3A673005B7BEC /* SummitWatch Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "SummitWatch Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A5F14BE2FE3AEBA005B7BEC /* SummitWidgetsExtensionRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SummitWidgetsExtensionRelease.entitlements; sourceTree = "<group>"; };
 		9A90DFE72FD33A1400FA7078 /* Summit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Summit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9A90DFF82FD33A1600FA7078 /* SummitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SummitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9A90E0022FD33A1600FA7078 /* SummitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SummitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9A5F14872FE3A500005B7BEC /* Exceptions for "SummitWidgets" folder in "SummitWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9A5F146C2FE3A4FF005B7BEC /* SummitWidgetsExtension */;
+		};
+		9A5F14CD2FE41466005B7BEC /* Exceptions for "Summit" folder in "SummitWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SpendingTodayAttributes.swift,
+			);
+			target = 9A5F146C2FE3A4FF005B7BEC /* SummitWidgetsExtension */;
+		};
 		9A90E00A2FD33A1600FA7078 /* Exceptions for "Summit" folder in "Summit" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -41,10 +123,34 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		9A5F14732FE3A4FF005B7BEC /* SummitWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9A5F14872FE3A500005B7BEC /* Exceptions for "SummitWidgets" folder in "SummitWidgetsExtension" target */,
+			);
+			path = SummitWidgets;
+			sourceTree = "<group>";
+		};
+		9A5F14942FE3A671005B7BEC /* SummitWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "SummitWatch Watch App";
+			sourceTree = "<group>";
+		};
+		9A5F14A22FE3A673005B7BEC /* SummitWatch Watch AppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "SummitWatch Watch AppTests";
+			sourceTree = "<group>";
+		};
+		9A5F14AC2FE3A673005B7BEC /* SummitWatch Watch AppUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "SummitWatch Watch AppUITests";
+			sourceTree = "<group>";
+		};
 		9A90DFE92FD33A1400FA7078 /* Summit */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				9A90E00A2FD33A1600FA7078 /* Exceptions for "Summit" folder in "Summit" target */,
+				9A5F14CD2FE41466005B7BEC /* Exceptions for "Summit" folder in "SummitWidgetsExtension" target */,
 			);
 			path = Summit;
 			sourceTree = "<group>";
@@ -62,6 +168,36 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		9A5F146A2FE3A4FF005B7BEC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9A5F14722FE3A4FF005B7BEC /* SwiftUI.framework in Frameworks */,
+				9A5F14702FE3A4FF005B7BEC /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F148D2FE3A671005B7BEC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F149C2FE3A673005B7BEC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F14A62FE3A673005B7BEC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9A90DFE42FD33A1400FA7078 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -86,13 +222,28 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9A5F146E2FE3A4FF005B7BEC /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				9A5F146F2FE3A4FF005B7BEC /* WidgetKit.framework */,
+				9A5F14712FE3A4FF005B7BEC /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		9A90DFDE2FD33A1400FA7078 = {
 			isa = PBXGroup;
 			children = (
+				9A5F14BE2FE3AEBA005B7BEC /* SummitWidgetsExtensionRelease.entitlements */,
 				9A59D87B2FD353850038E040 /* Summit.xctestplan */,
 				9A90DFE92FD33A1400FA7078 /* Summit */,
 				9A90DFFB2FD33A1600FA7078 /* SummitTests */,
 				9A90E0052FD33A1600FA7078 /* SummitUITests */,
+				9A5F14732FE3A4FF005B7BEC /* SummitWidgets */,
+				9A5F14942FE3A671005B7BEC /* SummitWatch Watch App */,
+				9A5F14A22FE3A673005B7BEC /* SummitWatch Watch AppTests */,
+				9A5F14AC2FE3A673005B7BEC /* SummitWatch Watch AppUITests */,
+				9A5F146E2FE3A4FF005B7BEC /* Frameworks */,
 				9A90DFE82FD33A1400FA7078 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -103,6 +254,11 @@
 				9A90DFE72FD33A1400FA7078 /* Summit.app */,
 				9A90DFF82FD33A1600FA7078 /* SummitTests.xctest */,
 				9A90E0022FD33A1600FA7078 /* SummitUITests.xctest */,
+				9A5F146D2FE3A4FF005B7BEC /* SummitWidgetsExtension.appex */,
+				9A5F148B2FE3A671005B7BEC /* SummitWatch.app */,
+				9A5F14902FE3A671005B7BEC /* SummitWatch Watch App.app */,
+				9A5F149F2FE3A673005B7BEC /* SummitWatch Watch AppTests.xctest */,
+				9A5F14A92FE3A673005B7BEC /* SummitWatch Watch AppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -110,6 +266,115 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		9A5F146C2FE3A4FF005B7BEC /* SummitWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A5F14842FE3A500005B7BEC /* Build configuration list for PBXNativeTarget "SummitWidgetsExtension" */;
+			buildPhases = (
+				9A5F14692FE3A4FF005B7BEC /* Sources */,
+				9A5F146A2FE3A4FF005B7BEC /* Frameworks */,
+				9A5F146B2FE3A4FF005B7BEC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9A5F14732FE3A4FF005B7BEC /* SummitWidgets */,
+			);
+			name = SummitWidgetsExtension;
+			packageProductDependencies = (
+			);
+			productName = SummitWidgetsExtension;
+			productReference = 9A5F146D2FE3A4FF005B7BEC /* SummitWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		9A5F148A2FE3A671005B7BEC /* SummitWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A5F14B52FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch" */;
+			buildPhases = (
+				9A5F14892FE3A671005B7BEC /* Resources */,
+				9A5F14B42FE3A673005B7BEC /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9A5F14932FE3A671005B7BEC /* PBXTargetDependency */,
+			);
+			name = SummitWatch;
+			packageProductDependencies = (
+			);
+			productName = SummitWatch;
+			productReference = 9A5F148B2FE3A671005B7BEC /* SummitWatch.app */;
+			productType = "com.apple.product-type.application.watchapp2-container";
+		};
+		9A5F148F2FE3A671005B7BEC /* SummitWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A5F14B12FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch Watch App" */;
+			buildPhases = (
+				9A5F148C2FE3A671005B7BEC /* Sources */,
+				9A5F148D2FE3A671005B7BEC /* Frameworks */,
+				9A5F148E2FE3A671005B7BEC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9A5F14942FE3A671005B7BEC /* SummitWatch Watch App */,
+			);
+			name = "SummitWatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "SummitWatch Watch App";
+			productReference = 9A5F14902FE3A671005B7BEC /* SummitWatch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9A5F149E2FE3A673005B7BEC /* SummitWatch Watch AppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A5F14B82FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch Watch AppTests" */;
+			buildPhases = (
+				9A5F149B2FE3A673005B7BEC /* Sources */,
+				9A5F149C2FE3A673005B7BEC /* Frameworks */,
+				9A5F149D2FE3A673005B7BEC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9A5F14A12FE3A673005B7BEC /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				9A5F14A22FE3A673005B7BEC /* SummitWatch Watch AppTests */,
+			);
+			name = "SummitWatch Watch AppTests";
+			packageProductDependencies = (
+			);
+			productName = "SummitWatch Watch AppTests";
+			productReference = 9A5F149F2FE3A673005B7BEC /* SummitWatch Watch AppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		9A5F14A82FE3A673005B7BEC /* SummitWatch Watch AppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A5F14BB2FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch Watch AppUITests" */;
+			buildPhases = (
+				9A5F14A52FE3A673005B7BEC /* Sources */,
+				9A5F14A62FE3A673005B7BEC /* Frameworks */,
+				9A5F14A72FE3A673005B7BEC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9A5F14AB2FE3A673005B7BEC /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				9A5F14AC2FE3A673005B7BEC /* SummitWatch Watch AppUITests */,
+			);
+			name = "SummitWatch Watch AppUITests";
+			packageProductDependencies = (
+			);
+			productName = "SummitWatch Watch AppUITests";
+			productReference = 9A5F14A92FE3A673005B7BEC /* SummitWatch Watch AppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		9A90DFE62FD33A1400FA7078 /* Summit */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 9A90E00B2FD33A1600FA7078 /* Build configuration list for PBXNativeTarget "Summit" */;
@@ -117,10 +382,12 @@
 				9A90DFE32FD33A1400FA7078 /* Sources */,
 				9A90DFE42FD33A1400FA7078 /* Frameworks */,
 				9A90DFE52FD33A1400FA7078 /* Resources */,
+				9A5F14882FE3A500005B7BEC /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				9A5F14822FE3A500005B7BEC /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				9A90DFE92FD33A1400FA7078 /* Summit */,
@@ -185,9 +452,26 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2620;
+				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
+					9A5F146C2FE3A4FF005B7BEC = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					9A5F148A2FE3A671005B7BEC = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					9A5F148F2FE3A671005B7BEC = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					9A5F149E2FE3A673005B7BEC = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = 9A5F148F2FE3A671005B7BEC;
+					};
+					9A5F14A82FE3A673005B7BEC = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = 9A5F148F2FE3A671005B7BEC;
+					};
 					9A90DFE62FD33A1400FA7078 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -218,11 +502,51 @@
 				9A90DFE62FD33A1400FA7078 /* Summit */,
 				9A90DFF72FD33A1600FA7078 /* SummitTests */,
 				9A90E0012FD33A1600FA7078 /* SummitUITests */,
+				9A5F146C2FE3A4FF005B7BEC /* SummitWidgetsExtension */,
+				9A5F148A2FE3A671005B7BEC /* SummitWatch */,
+				9A5F148F2FE3A671005B7BEC /* SummitWatch Watch App */,
+				9A5F149E2FE3A673005B7BEC /* SummitWatch Watch AppTests */,
+				9A5F14A82FE3A673005B7BEC /* SummitWatch Watch AppUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		9A5F146B2FE3A4FF005B7BEC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F14892FE3A671005B7BEC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F148E2FE3A671005B7BEC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F149D2FE3A673005B7BEC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F14A72FE3A673005B7BEC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9A90DFE52FD33A1400FA7078 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -247,6 +571,34 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		9A5F14692FE3A4FF005B7BEC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F148C2FE3A671005B7BEC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F149B2FE3A673005B7BEC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A5F14A52FE3A673005B7BEC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9A90DFE32FD33A1400FA7078 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -271,6 +623,26 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		9A5F14822FE3A500005B7BEC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9A5F146C2FE3A4FF005B7BEC /* SummitWidgetsExtension */;
+			targetProxy = 9A5F14812FE3A500005B7BEC /* PBXContainerItemProxy */;
+		};
+		9A5F14932FE3A671005B7BEC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9A5F148F2FE3A671005B7BEC /* SummitWatch Watch App */;
+			targetProxy = 9A5F14922FE3A671005B7BEC /* PBXContainerItemProxy */;
+		};
+		9A5F14A12FE3A673005B7BEC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9A5F148F2FE3A671005B7BEC /* SummitWatch Watch App */;
+			targetProxy = 9A5F14A02FE3A673005B7BEC /* PBXContainerItemProxy */;
+		};
+		9A5F14AB2FE3A673005B7BEC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9A5F148F2FE3A671005B7BEC /* SummitWatch Watch App */;
+			targetProxy = 9A5F14AA2FE3A673005B7BEC /* PBXContainerItemProxy */;
+		};
 		9A90DFFA2FD33A1600FA7078 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 9A90DFE62FD33A1400FA7078 /* Summit */;
@@ -284,17 +656,290 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		9A5F14852FE3A500005B7BEC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SummitWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SummitWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9A5F14862FE3A500005B7BEC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = SummitWidgetsExtensionRelease.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SummitWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SummitWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		9A5F14B22FE3A673005B7BEC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "SummitWatch Watch App/SummitWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SummitWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKWatchOnly = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWatch.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Debug;
+		};
+		9A5F14B32FE3A673005B7BEC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "SummitWatch Watch App/SummitWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SummitWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKWatchOnly = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWatch.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Release;
+		};
+		9A5F14B62FE3A673005B7BEC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				INFOPLIST_KEY_CFBundleDisplayName = SummitWatch;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWatch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9A5F14B72FE3A673005B7BEC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				INFOPLIST_KEY_CFBundleDisplayName = SummitWatch;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWatch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		9A5F14B92FE3A673005B7BEC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "BudgetingApp.Summit.SummitWatch-Watch-AppTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SummitWatch Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SummitWatch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Debug;
+		};
+		9A5F14BA2FE3A673005B7BEC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "BudgetingApp.Summit.SummitWatch-Watch-AppTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SummitWatch Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SummitWatch Watch App";
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Release;
+		};
+		9A5F14BC2FE3A673005B7BEC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "BudgetingApp.Summit.SummitWatch-Watch-AppUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "SummitWatch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Debug;
+		};
+		9A5F14BD2FE3A673005B7BEC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "BudgetingApp.Summit.SummitWatch-Watch-AppUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "SummitWatch Watch App";
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Release;
+		};
 		9A90E00C2FD33A1600FA7078 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Summit/Summit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Summit/Info.plist;
@@ -337,12 +982,23 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Summit/Summit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = Z5ZHQ58FLU;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Summit/Info.plist;
@@ -603,6 +1259,51 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		9A5F14842FE3A500005B7BEC /* Build configuration list for PBXNativeTarget "SummitWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A5F14852FE3A500005B7BEC /* Debug */,
+				9A5F14862FE3A500005B7BEC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9A5F14B12FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A5F14B22FE3A673005B7BEC /* Debug */,
+				9A5F14B32FE3A673005B7BEC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9A5F14B52FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A5F14B62FE3A673005B7BEC /* Debug */,
+				9A5F14B72FE3A673005B7BEC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9A5F14B82FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch Watch AppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A5F14B92FE3A673005B7BEC /* Debug */,
+				9A5F14BA2FE3A673005B7BEC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9A5F14BB2FE3A673005B7BEC /* Build configuration list for PBXNativeTarget "SummitWatch Watch AppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A5F14BC2FE3A673005B7BEC /* Debug */,
+				9A5F14BD2FE3A673005B7BEC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		9A90DFE22FD33A1400FA7078 /* Build configuration list for PBXProject "Summit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -6,7 +6,13 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>SummitPlaidBackendURL</key>
 	<string>https://summit-backend-rszx.onrender.com</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Summit needs access to your photos so you can pick a receipt to scan.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Summit uses the camera to capture receipts and extract line items on-device.</string>
 </dict>
 </plist>

@@ -1,10 +1,12 @@
 import SwiftUI
 import SwiftData
 
-@main
-struct SummitApp: App {
-    let sharedModelContainer: ModelContainer = {
-        let schema = Schema([
+enum SummitSharedStore {
+    static let appGroupID = "group.com.welker.Summit"
+    static let storeFilename = "Summit.sqlite"
+
+    static var schema: Schema {
+        Schema([
             AccountModel.self,
             TransactionModel.self,
             TransactionSplitModel.self,
@@ -21,16 +23,29 @@ struct SummitApp: App {
             InvestmentTransactionModel.self,
             LiabilityModel.self,
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    }
 
+    static func makeConfiguration() -> ModelConfiguration {
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            let storeURL = groupURL.appendingPathComponent(storeFilename)
+            return ModelConfiguration(schema: schema, url: storeURL)
+        }
+        return ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    }
+}
+
+@main
+struct SummitApp: App {
+    let sharedModelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try ModelContainer(for: SummitSharedStore.schema, configurations: [SummitSharedStore.makeConfiguration()])
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
     }()
 
     @State private var engine = BudgetEngine()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -39,9 +54,26 @@ struct SummitApp: App {
                 .task {
                     await MainActor.run {
                         BudgetEngine.seedIfNeeded(context: sharedModelContainer.mainContext)
+                        SummitSnapshotWriter.write(context: sharedModelContainer.mainContext)
+                        SpendingTodayActivityManager.startOrUpdate(context: sharedModelContainer.mainContext)
                     }
                 }
         }
         .modelContainer(sharedModelContainer)
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background:
+                Task { @MainActor in
+                    SummitSnapshotWriter.write(context: sharedModelContainer.mainContext)
+                    SpendingTodayActivityManager.startOrUpdate(context: sharedModelContainer.mainContext)
+                }
+            case .active:
+                Task { @MainActor in
+                    SpendingTodayActivityManager.startOrUpdate(context: sharedModelContainer.mainContext)
+                }
+            default:
+                break
+            }
+        }
     }
 }
