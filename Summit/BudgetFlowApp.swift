@@ -33,6 +33,8 @@ struct RootView: View {
 
             AIInsightsView()
                 .tabItem { Label(insightsTitle, systemImage: insightsIcon) }
+            AuthView()
+                .tabItem { Label("Sync", systemImage: "icloud") }
         }
     }
 }

@@ -11,6 +11,12 @@
 		9A5F14722FE3A4FF005B7BEC /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A5F14712FE3A4FF005B7BEC /* SwiftUI.framework */; };
 		9A5F14832FE3A500005B7BEC /* SummitWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9A5F146D2FE3A4FF005B7BEC /* SummitWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		9A5F14912FE3A671005B7BEC /* SummitWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 9A5F14902FE3A671005B7BEC /* SummitWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9ACC449F2FE7223500A8194E /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 9ACC449E2FE7223500A8194E /* Auth */; };
+		9ACC44A12FE7223500A8194E /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = 9ACC44A02FE7223500A8194E /* Functions */; };
+		9ACC44A32FE7223500A8194E /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 9ACC44A22FE7223500A8194E /* PostgREST */; };
+		9ACC44A52FE7223500A8194E /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 9ACC44A42FE7223500A8194E /* Realtime */; };
+		9ACC44A72FE7223500A8194E /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 9ACC44A62FE7223500A8194E /* Storage */; };
+		9ACC44A92FE7223500A8194E /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 9ACC44A82FE7223500A8194E /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -202,6 +208,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9ACC44A32FE7223500A8194E /* PostgREST in Frameworks */,
+				9ACC44A12FE7223500A8194E /* Functions in Frameworks */,
+				9ACC44A92FE7223500A8194E /* Supabase in Frameworks */,
+				9ACC449F2FE7223500A8194E /* Auth in Frameworks */,
+				9ACC44A72FE7223500A8194E /* Storage in Frameworks */,
+				9ACC44A52FE7223500A8194E /* Realtime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -394,6 +406,12 @@
 			);
 			name = Summit;
 			packageProductDependencies = (
+				9ACC449E2FE7223500A8194E /* Auth */,
+				9ACC44A02FE7223500A8194E /* Functions */,
+				9ACC44A22FE7223500A8194E /* PostgREST */,
+				9ACC44A42FE7223500A8194E /* Realtime */,
+				9ACC44A62FE7223500A8194E /* Storage */,
+				9ACC44A82FE7223500A8194E /* Supabase */,
 			);
 			productName = Summit;
 			productReference = 9A90DFE72FD33A1400FA7078 /* Summit.app */;
@@ -494,6 +512,9 @@
 			);
 			mainGroup = 9A90DFDE2FD33A1400FA7078;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9A90DFE82FD33A1400FA7078 /* Products */;
 			projectDirPath = "";
@@ -676,6 +697,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWidgets;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.welker.Summit.SummitWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -709,6 +731,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = BudgetingApp.Summit.SummitWidgets;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.welker.Summit.SummitWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -1341,6 +1364,50 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		9ACC449E2FE7223500A8194E /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+		9ACC44A02FE7223500A8194E /* Functions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Functions;
+		};
+		9ACC44A22FE7223500A8194E /* PostgREST */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = PostgREST;
+		};
+		9ACC44A42FE7223500A8194E /* Realtime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Realtime;
+		};
+		9ACC44A62FE7223500A8194E /* Storage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Storage;
+		};
+		9ACC44A82FE7223500A8194E /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9ACC449D2FE7223500A8194E /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 9A90DFDF2FD33A1400FA7078 /* Project object */;
 }
