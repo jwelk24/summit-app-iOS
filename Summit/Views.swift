@@ -752,7 +752,7 @@ struct TransactionsView: View {
 
     private func delete(at offsets: IndexSet) {
         for index in offsets {
-            context.delete(transactions[index])
+            SoftDelete.markTransactionDeleted(transactions[index], context: context)
         }
         try? context.save()
     }
@@ -2342,7 +2342,7 @@ struct AccountRegisterView: View {
                     }
                     .onDelete { offsets in
                         for index in offsets {
-                            context.delete(rows[index].transaction)
+                            SoftDelete.markTransactionDeleted(rows[index].transaction, context: context)
                         }
                         try? context.save()
                     }

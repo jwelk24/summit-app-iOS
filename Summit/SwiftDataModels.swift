@@ -397,3 +397,18 @@ final class LiabilityModel {
         self.account = account
     }
 }
+
+@Model
+final class SoftDeleteTombstone {
+    @Attribute(.unique) var id: UUID
+    var table: String
+    var recordID: UUID
+    var createdAt: Date
+
+    init(id: UUID = UUID(), table: String, recordID: UUID, createdAt: Date = Date()) {
+        self.id = id
+        self.table = table
+        self.recordID = recordID
+        self.createdAt = createdAt
+    }
+}

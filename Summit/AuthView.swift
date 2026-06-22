@@ -58,7 +58,7 @@ struct AuthView: View {
                     } label: {
                         HStack {
                             if sync.isSyncing { ProgressView() }
-                            Text(sync.isSyncing ? "Syncing…" : "Sync Accounts Now")
+                            Text(sync.isSyncing ? "Syncing…" : "Sync Now")
                         }
                     }
                     .disabled(sync.isSyncing || household.currentHousehold == nil)
