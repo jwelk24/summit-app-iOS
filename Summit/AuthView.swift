@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AuthenticationServices
 
 struct AuthView: View {
     enum Mode { case signIn, signUp }
@@ -10,6 +11,11 @@ struct AuthView: View {
     @State private var isWorking: Bool = false
     @State private var errorMessage: String?
     @State private var infoMessage: String?
+    @State private var generatedInviteCode: String?
+    @State private var inviteToJoin: String = ""
+    @State private var inviteBusy: Bool = false
+    @State private var inviteMessage: String?
+    @State private var appleNonce: String = ""
 
     private let supabase = SupabaseService.shared
     private let household = HouseholdService.shared
@@ -73,6 +79,57 @@ struct AuthView: View {
                     }
                 }
 
+                if household.currentRole?.canInvite == true {
+                    Section("Invite a member") {
+                        if let code = generatedInviteCode {
+                            LabeledContent("Code", value: code)
+                                .font(.title3.monospaced())
+                            Button {
+                                #if canImport(UIKit)
+                                UIPasteboard.general.string = code
+                                inviteMessage = "Copied to clipboard."
+                                #endif
+                            } label: {
+                                Label("Copy code", systemImage: "doc.on.doc")
+                            }
+                        }
+                        Button {
+                            Task { await makeInvite() }
+                        } label: {
+                            HStack {
+                                if inviteBusy { ProgressView() }
+                                Text(generatedInviteCode == nil ? "Generate Invite Code" : "Generate New Code")
+                            }
+                        }
+                        .disabled(inviteBusy)
+                        Text("Code expires in 7 days. Share with someone you trust.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Join a household") {
+                    TextField("Enter invite code", text: $inviteToJoin)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .font(.body.monospaced())
+                    Button {
+                        Task { await joinHousehold() }
+                    } label: {
+                        HStack {
+                            if inviteBusy { ProgressView() }
+                            Text("Join")
+                        }
+                    }
+                    .disabled(inviteBusy || inviteToJoin.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if let msg = inviteMessage {
+                    Section {
+                        Text(msg).foregroundStyle(.secondary).font(.callout)
+                    }
+                }
+
                 Section {
                     Button("Sign Out", role: .destructive) {
                         Task {
@@ -93,6 +150,20 @@ struct AuthView: View {
     private var signInForm: some View {
         NavigationStack {
             Form {
+                Section {
+                    SignInWithAppleButton(.signIn) { request in
+                        appleNonce = AuthService.randomNonceString()
+                        request.requestedScopes = [.fullName, .email]
+                        request.nonce = AuthService.sha256(appleNonce)
+                    } onCompletion: { result in
+                        Task { await handleAppleResult(result) }
+                    }
+                    .frame(height: 44)
+                    .signInWithAppleButtonStyle(.black)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
                 Section {
                     Picker("Mode", selection: $mode) {
                         Text("Sign In").tag(Mode.signIn)
@@ -176,6 +247,50 @@ struct AuthView: View {
             }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        errorMessage = nil
+        infoMessage = nil
+        do {
+            let authorization = try result.get()
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let idToken = String(data: tokenData, encoding: .utf8) else {
+                errorMessage = "Apple sign-in returned no token."
+                return
+            }
+            try await AuthService.signInWithApple(idToken: idToken, nonce: appleNonce)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func makeInvite() async {
+        inviteMessage = nil
+        inviteBusy = true
+        defer { inviteBusy = false }
+        do {
+            let code = try await household.createInvite()
+            generatedInviteCode = code
+            inviteMessage = "Share this code with the person you're inviting."
+        } catch {
+            inviteMessage = error.localizedDescription
+        }
+    }
+
+    private func joinHousehold() async {
+        inviteMessage = nil
+        inviteBusy = true
+        defer { inviteBusy = false }
+        do {
+            try await household.redeemInvite(code: inviteToJoin)
+            inviteToJoin = ""
+            inviteMessage = "Joined household. Syncing…"
+            await sync.syncAccounts(context: modelContext)
+        } catch {
+            inviteMessage = error.localizedDescription
         }
     }
 

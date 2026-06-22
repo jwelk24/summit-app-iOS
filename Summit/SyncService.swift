@@ -54,6 +54,130 @@ private struct TransactionSplitRow: Codable, Sendable {
     let deleted_at: Date?
 }
 
+private struct GoalRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let category_id: UUID?
+    let type: String
+    let target_amount: Decimal
+    let target_date: Date?
+    let deleted_at: Date?
+}
+
+private struct BudgetMonthRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let year: Int
+    let month: Int
+    let carryover: Decimal
+    let deleted_at: Date?
+}
+
+private struct BudgetAllocationRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let month_id: UUID
+    let category_id: UUID
+    let amount: Decimal
+    let deleted_at: Date?
+}
+
+private struct ScheduledItemRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let account_id: UUID?
+    let category_id: UUID?
+    let kind: String
+    let name: String
+    let amount: Decimal
+    let next_date: Date
+    let interval_days: Int
+    let deleted_at: Date?
+}
+
+private struct BalanceSnapshotRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let account_id: UUID
+    let date: Date
+    let balance: Decimal
+    let deleted_at: Date?
+}
+
+private struct LiabilityRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let account_id: UUID?
+    let plaid_account_id: String
+    let kind: String
+    let last_statement_balance: Decimal?
+    let last_statement_issue_date: Date?
+    let minimum_payment: Decimal?
+    let next_payment_due_date: Date?
+    let last_payment_amount: Decimal?
+    let last_payment_date: Date?
+    let interest_rate_percentage: Decimal?
+    let origination_principal: Decimal?
+    let origination_date: Date?
+    let maturity_date: Date?
+    let loan_name: String?
+    let deleted_at: Date?
+}
+
+private struct InvestmentHoldingRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let account_id: UUID?
+    let plaid_account_id: String
+    let plaid_security_id: String
+    let ticker_symbol: String?
+    let security_name: String?
+    let security_type: String?
+    let is_cash_equivalent: Bool
+    let quantity: Decimal
+    let institution_price: Decimal
+    let institution_value: Decimal
+    let cost_basis: Decimal?
+    let currency_code: String
+    let as_of_date: Date
+    let deleted_at: Date?
+}
+
+private struct InvestmentTransactionRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let account_id: UUID?
+    let plaid_investment_transaction_id: String
+    let date: Date
+    let name: String
+    let amount: Decimal
+    let fees: Decimal?
+    let quantity: Decimal?
+    let price: Decimal?
+    let type: String
+    let subtype: String?
+    let plaid_security_id: String?
+    let ticker_symbol: String?
+    let security_name: String?
+    let currency_code: String
+    let deleted_at: Date?
+}
+
+private struct PlaidAccountLinkRow: Codable, Sendable {
+    let household_id: UUID
+    let account_id: UUID
+    let plaid_item_id: String
+    let plaid_account_id: String
+    let deleted_at: Date?
+}
+
+private struct PlaidTransactionLinkRow: Codable, Sendable {
+    let household_id: UUID
+    let transaction_id: UUID
+    let plaid_transaction_id: String
+    let deleted_at: Date?
+}
+
 enum SyncTable {
     static let transactions = "transactions"
 }
@@ -125,16 +249,36 @@ final class SyncService {
                 pushed += try await pushAccounts(context: context, householdID: household.id)
                 pushed += try await pushCategoryGroups(context: context, householdID: household.id)
                 pushed += try await pushCategories(context: context, householdID: household.id)
+                pushed += try await pushGoals(context: context, householdID: household.id)
+                pushed += try await pushBudgetMonths(context: context, householdID: household.id)
+                pushed += try await pushBudgetAllocations(context: context, householdID: household.id)
+                pushed += try await pushScheduledItems(context: context, householdID: household.id)
+                pushed += try await pushLiabilities(context: context, householdID: household.id)
+                pushed += try await pushInvestmentHoldings(context: context, householdID: household.id)
+                pushed += try await pushInvestmentTransactions(context: context, householdID: household.id)
+                pushed += try await pushPlaidAccountLinks(context: context, householdID: household.id)
                 pushed += try await pushTransactions(context: context, householdID: household.id)
+                pushed += try await pushPlaidTransactionLinks(context: context, householdID: household.id)
                 pushed += try await pushTransactionSplits(context: context, householdID: household.id)
+                pushed += try await pushBalanceSnapshots(context: context, householdID: household.id)
                 pushed += try await pushDeletions(context: context, householdID: household.id)
             }
 
             pulled += try await pullAccounts(context: context, householdID: household.id)
             pulled += try await pullCategoryGroups(context: context, householdID: household.id)
             pulled += try await pullCategories(context: context, householdID: household.id)
+            pulled += try await pullGoals(context: context, householdID: household.id)
+            pulled += try await pullBudgetMonths(context: context, householdID: household.id)
+            pulled += try await pullBudgetAllocations(context: context, householdID: household.id)
+            pulled += try await pullScheduledItems(context: context, householdID: household.id)
+            pulled += try await pullLiabilities(context: context, householdID: household.id)
+            pulled += try await pullInvestmentHoldings(context: context, householdID: household.id)
+            pulled += try await pullInvestmentTransactions(context: context, householdID: household.id)
+            pulled += try await pullPlaidAccountLinks(context: context, householdID: household.id)
             pulled += try await pullTransactions(context: context, householdID: household.id)
+            pulled += try await pullPlaidTransactionLinks(context: context, householdID: household.id)
             pulled += try await pullTransactionSplits(context: context, householdID: household.id)
+            pulled += try await pullBalanceSnapshots(context: context, householdID: household.id)
 
             lastPushCount = pushed
             lastPullCount = pulled
@@ -310,6 +454,468 @@ final class SyncService {
                                          account: account, category: category)
                 context.insert(t)
                 byID[row.id] = t
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Goals
+
+    private func pushGoals(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<GoalModel>())
+        let rows = local.map { g in
+            GoalRow(id: g.id, household_id: householdID, category_id: g.category?.id,
+                    type: g.type.rawValue, target_amount: g.targetAmount,
+                    target_date: g.targetDate, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("goals").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullGoals(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [GoalRow] = try await SupabaseService.shared.client
+            .from("goals").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        let categoriesByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<CategoryModel>()).map { ($0.id, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<GoalModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            guard let type = GoalType(rawValue: row.type) else { continue }
+            let category = row.category_id.flatMap { categoriesByID[$0] }
+            if let local = byID[row.id] {
+                if local.type != type { local.type = type; changed += 1 }
+                if local.targetAmount != row.target_amount { local.targetAmount = row.target_amount; changed += 1 }
+                if local.targetDate != row.target_date { local.targetDate = row.target_date; changed += 1 }
+                if local.category?.id != row.category_id { local.category = category; changed += 1 }
+            } else {
+                let g = GoalModel(id: row.id, type: type, targetAmount: row.target_amount,
+                                  targetDate: row.target_date, category: category)
+                context.insert(g)
+                byID[row.id] = g
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Budget Months
+
+    private func pushBudgetMonths(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<BudgetMonthModel>())
+        let rows = local.map { m in
+            BudgetMonthRow(id: m.id, household_id: householdID, year: m.year, month: m.month,
+                           carryover: m.carryover, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("budget_months").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullBudgetMonths(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [BudgetMonthRow] = try await SupabaseService.shared.client
+            .from("budget_months").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<BudgetMonthModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            if let local = byID[row.id] {
+                if local.year != row.year { local.year = row.year; changed += 1 }
+                if local.month != row.month { local.month = row.month; changed += 1 }
+                if local.carryover != row.carryover { local.carryover = row.carryover; changed += 1 }
+            } else {
+                let m = BudgetMonthModel(id: row.id, year: row.year, month: row.month, carryover: row.carryover)
+                context.insert(m)
+                byID[row.id] = m
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Budget Allocations
+
+    private func pushBudgetAllocations(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<BudgetAllocationModel>())
+        let rows: [BudgetAllocationRow] = local.compactMap { a in
+            guard let monthID = a.month?.id, let categoryID = a.category?.id else { return nil }
+            return BudgetAllocationRow(id: a.id, household_id: householdID, month_id: monthID,
+                                       category_id: categoryID, amount: a.amount, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("budget_allocations").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullBudgetAllocations(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [BudgetAllocationRow] = try await SupabaseService.shared.client
+            .from("budget_allocations").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        let monthsByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<BudgetMonthModel>()).map { ($0.id, $0) })
+        let categoriesByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<CategoryModel>()).map { ($0.id, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<BudgetAllocationModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            guard let month = monthsByID[row.month_id], let category = categoriesByID[row.category_id] else { continue }
+            if let local = byID[row.id] {
+                if local.amount != row.amount { local.amount = row.amount; changed += 1 }
+                if local.month?.id != row.month_id { local.month = month; changed += 1 }
+                if local.category?.id != row.category_id { local.category = category; changed += 1 }
+            } else {
+                let a = BudgetAllocationModel(id: row.id, amount: row.amount, category: category, month: month)
+                context.insert(a)
+                byID[row.id] = a
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Scheduled Items
+
+    private func pushScheduledItems(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<ScheduledItemModel>())
+        let rows = local.map { s in
+            ScheduledItemRow(id: s.id, household_id: householdID, account_id: s.account?.id, category_id: s.category?.id,
+                             kind: s.kind.rawValue, name: s.name, amount: s.amount,
+                             next_date: s.nextDate, interval_days: s.intervalDays, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("scheduled_items").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullScheduledItems(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [ScheduledItemRow] = try await SupabaseService.shared.client
+            .from("scheduled_items").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        let accountsByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<AccountModel>()).map { ($0.id, $0) })
+        let categoriesByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<CategoryModel>()).map { ($0.id, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<ScheduledItemModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            guard let kind = ScheduledKind(rawValue: row.kind) else { continue }
+            let account = row.account_id.flatMap { accountsByID[$0] }
+            let category = row.category_id.flatMap { categoriesByID[$0] }
+            if let local = byID[row.id] {
+                if local.kind != kind { local.kind = kind; changed += 1 }
+                if local.name != row.name { local.name = row.name; changed += 1 }
+                if local.amount != row.amount { local.amount = row.amount; changed += 1 }
+                if local.nextDate != row.next_date { local.nextDate = row.next_date; changed += 1 }
+                if local.intervalDays != row.interval_days { local.intervalDays = row.interval_days; changed += 1 }
+                if local.account?.id != row.account_id { local.account = account; changed += 1 }
+                if local.category?.id != row.category_id { local.category = category; changed += 1 }
+            } else {
+                let s = ScheduledItemModel(id: row.id, kind: kind, name: row.name, amount: row.amount,
+                                           nextDate: row.next_date, intervalDays: row.interval_days,
+                                           account: account, category: category)
+                context.insert(s)
+                byID[row.id] = s
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Balance Snapshots
+
+    private func pushBalanceSnapshots(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<BalanceSnapshotModel>())
+        let rows: [BalanceSnapshotRow] = local.compactMap { s in
+            guard let accountID = s.account?.id else { return nil }
+            return BalanceSnapshotRow(id: s.id, household_id: householdID, account_id: accountID,
+                                      date: s.date, balance: s.balance, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("balance_snapshots").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullBalanceSnapshots(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [BalanceSnapshotRow] = try await SupabaseService.shared.client
+            .from("balance_snapshots").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        let accountsByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<AccountModel>()).map { ($0.id, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<BalanceSnapshotModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            guard let account = accountsByID[row.account_id] else { continue }
+            if let local = byID[row.id] {
+                if local.date != row.date { local.date = row.date; changed += 1 }
+                if local.balance != row.balance { local.balance = row.balance; changed += 1 }
+                if local.account?.id != row.account_id { local.account = account; changed += 1 }
+            } else {
+                let s = BalanceSnapshotModel(id: row.id, date: row.date, balance: row.balance, account: account)
+                context.insert(s)
+                byID[row.id] = s
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Liabilities
+
+    private func pushLiabilities(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<LiabilityModel>())
+        let rows = local.map { l in
+            LiabilityRow(id: l.id, household_id: householdID, account_id: l.account?.id,
+                         plaid_account_id: l.plaidAccountId, kind: l.kind.rawValue,
+                         last_statement_balance: l.lastStatementBalance, last_statement_issue_date: l.lastStatementIssueDate,
+                         minimum_payment: l.minimumPayment, next_payment_due_date: l.nextPaymentDueDate,
+                         last_payment_amount: l.lastPaymentAmount, last_payment_date: l.lastPaymentDate,
+                         interest_rate_percentage: l.interestRatePercentage,
+                         origination_principal: l.originationPrincipal, origination_date: l.originationDate,
+                         maturity_date: l.maturityDate, loan_name: l.loanName, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("liabilities").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullLiabilities(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [LiabilityRow] = try await SupabaseService.shared.client
+            .from("liabilities").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        let accountsByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<AccountModel>()).map { ($0.id, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<LiabilityModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            guard let kind = LiabilityKind(rawValue: row.kind) else { continue }
+            let account = row.account_id.flatMap { accountsByID[$0] }
+            if let local = byID[row.id] {
+                if local.plaidAccountId != row.plaid_account_id { local.plaidAccountId = row.plaid_account_id; changed += 1 }
+                if local.kind != kind { local.kind = kind; changed += 1 }
+                if local.lastStatementBalance != row.last_statement_balance { local.lastStatementBalance = row.last_statement_balance; changed += 1 }
+                if local.lastStatementIssueDate != row.last_statement_issue_date { local.lastStatementIssueDate = row.last_statement_issue_date; changed += 1 }
+                if local.minimumPayment != row.minimum_payment { local.minimumPayment = row.minimum_payment; changed += 1 }
+                if local.nextPaymentDueDate != row.next_payment_due_date { local.nextPaymentDueDate = row.next_payment_due_date; changed += 1 }
+                if local.lastPaymentAmount != row.last_payment_amount { local.lastPaymentAmount = row.last_payment_amount; changed += 1 }
+                if local.lastPaymentDate != row.last_payment_date { local.lastPaymentDate = row.last_payment_date; changed += 1 }
+                if local.interestRatePercentage != row.interest_rate_percentage { local.interestRatePercentage = row.interest_rate_percentage; changed += 1 }
+                if local.originationPrincipal != row.origination_principal { local.originationPrincipal = row.origination_principal; changed += 1 }
+                if local.originationDate != row.origination_date { local.originationDate = row.origination_date; changed += 1 }
+                if local.maturityDate != row.maturity_date { local.maturityDate = row.maturity_date; changed += 1 }
+                if local.loanName != row.loan_name { local.loanName = row.loan_name; changed += 1 }
+                if local.account?.id != row.account_id { local.account = account; changed += 1 }
+            } else {
+                let l = LiabilityModel(id: row.id, plaidAccountId: row.plaid_account_id, kind: kind,
+                                       lastStatementBalance: row.last_statement_balance, lastStatementIssueDate: row.last_statement_issue_date,
+                                       minimumPayment: row.minimum_payment, nextPaymentDueDate: row.next_payment_due_date,
+                                       lastPaymentAmount: row.last_payment_amount, lastPaymentDate: row.last_payment_date,
+                                       interestRatePercentage: row.interest_rate_percentage,
+                                       originationPrincipal: row.origination_principal, originationDate: row.origination_date,
+                                       maturityDate: row.maturity_date, loanName: row.loan_name, account: account)
+                context.insert(l)
+                byID[row.id] = l
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Investment Holdings
+
+    private func pushInvestmentHoldings(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<InvestmentHoldingModel>())
+        let rows = local.map { h in
+            InvestmentHoldingRow(id: h.id, household_id: householdID, account_id: h.account?.id,
+                                 plaid_account_id: h.plaidAccountId, plaid_security_id: h.plaidSecurityId,
+                                 ticker_symbol: h.tickerSymbol, security_name: h.securityName, security_type: h.securityType,
+                                 is_cash_equivalent: h.isCashEquivalent, quantity: h.quantity,
+                                 institution_price: h.institutionPrice, institution_value: h.institutionValue,
+                                 cost_basis: h.costBasis, currency_code: h.currencyCode, as_of_date: h.asOfDate,
+                                 deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("investment_holdings").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullInvestmentHoldings(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [InvestmentHoldingRow] = try await SupabaseService.shared.client
+            .from("investment_holdings").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        let accountsByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<AccountModel>()).map { ($0.id, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<InvestmentHoldingModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            let account = row.account_id.flatMap { accountsByID[$0] }
+            if let local = byID[row.id] {
+                if local.tickerSymbol != row.ticker_symbol { local.tickerSymbol = row.ticker_symbol; changed += 1 }
+                if local.securityName != row.security_name { local.securityName = row.security_name; changed += 1 }
+                if local.securityType != row.security_type { local.securityType = row.security_type; changed += 1 }
+                if local.isCashEquivalent != row.is_cash_equivalent { local.isCashEquivalent = row.is_cash_equivalent; changed += 1 }
+                if local.quantity != row.quantity { local.quantity = row.quantity; changed += 1 }
+                if local.institutionPrice != row.institution_price { local.institutionPrice = row.institution_price; changed += 1 }
+                if local.institutionValue != row.institution_value { local.institutionValue = row.institution_value; changed += 1 }
+                if local.costBasis != row.cost_basis { local.costBasis = row.cost_basis; changed += 1 }
+                if local.currencyCode != row.currency_code { local.currencyCode = row.currency_code; changed += 1 }
+                if local.asOfDate != row.as_of_date { local.asOfDate = row.as_of_date; changed += 1 }
+                if local.account?.id != row.account_id { local.account = account; changed += 1 }
+            } else {
+                let h = InvestmentHoldingModel(id: row.id, plaidAccountId: row.plaid_account_id, plaidSecurityId: row.plaid_security_id,
+                                               tickerSymbol: row.ticker_symbol, securityName: row.security_name,
+                                               securityType: row.security_type, isCashEquivalent: row.is_cash_equivalent,
+                                               quantity: row.quantity, institutionPrice: row.institution_price,
+                                               institutionValue: row.institution_value, costBasis: row.cost_basis,
+                                               currencyCode: row.currency_code, asOfDate: row.as_of_date, account: account)
+                context.insert(h)
+                byID[row.id] = h
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Investment Transactions
+
+    private func pushInvestmentTransactions(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<InvestmentTransactionModel>())
+        let rows = local.map { t in
+            InvestmentTransactionRow(id: t.id, household_id: householdID, account_id: t.account?.id,
+                                     plaid_investment_transaction_id: t.plaidInvestmentTransactionId, date: t.date,
+                                     name: t.name, amount: t.amount, fees: t.fees, quantity: t.quantity, price: t.price,
+                                     type: t.type, subtype: t.subtype, plaid_security_id: t.plaidSecurityId,
+                                     ticker_symbol: t.tickerSymbol, security_name: t.securityName,
+                                     currency_code: t.currencyCode, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("investment_transactions").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullInvestmentTransactions(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [InvestmentTransactionRow] = try await SupabaseService.shared.client
+            .from("investment_transactions").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        let accountsByID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<AccountModel>()).map { ($0.id, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<InvestmentTransactionModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            let account = row.account_id.flatMap { accountsByID[$0] }
+            if let local = byID[row.id] {
+                if local.date != row.date { local.date = row.date; changed += 1 }
+                if local.name != row.name { local.name = row.name; changed += 1 }
+                if local.amount != row.amount { local.amount = row.amount; changed += 1 }
+                if local.fees != row.fees { local.fees = row.fees; changed += 1 }
+                if local.quantity != row.quantity { local.quantity = row.quantity; changed += 1 }
+                if local.price != row.price { local.price = row.price; changed += 1 }
+                if local.type != row.type { local.type = row.type; changed += 1 }
+                if local.subtype != row.subtype { local.subtype = row.subtype; changed += 1 }
+                if local.plaidSecurityId != row.plaid_security_id { local.plaidSecurityId = row.plaid_security_id; changed += 1 }
+                if local.tickerSymbol != row.ticker_symbol { local.tickerSymbol = row.ticker_symbol; changed += 1 }
+                if local.securityName != row.security_name { local.securityName = row.security_name; changed += 1 }
+                if local.currencyCode != row.currency_code { local.currencyCode = row.currency_code; changed += 1 }
+                if local.account?.id != row.account_id { local.account = account; changed += 1 }
+            } else {
+                let t = InvestmentTransactionModel(id: row.id, plaidInvestmentTransactionId: row.plaid_investment_transaction_id,
+                                                   date: row.date, name: row.name, amount: row.amount, fees: row.fees,
+                                                   quantity: row.quantity, price: row.price, type: row.type,
+                                                   subtype: row.subtype, plaidSecurityId: row.plaid_security_id,
+                                                   tickerSymbol: row.ticker_symbol, securityName: row.security_name,
+                                                   currencyCode: row.currency_code, account: account)
+                context.insert(t)
+                byID[row.id] = t
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Plaid Account Links
+
+    private func pushPlaidAccountLinks(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<PlaidAccountLinkModel>())
+        let rows = local.map { l in
+            PlaidAccountLinkRow(household_id: householdID, account_id: l.accountModelId,
+                                plaid_item_id: l.plaidItemId, plaid_account_id: l.plaidAccountId, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("plaid_account_links").upsert(rows, onConflict: "plaid_account_id").execute()
+        return rows.count
+    }
+
+    private func pullPlaidAccountLinks(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [PlaidAccountLinkRow] = try await SupabaseService.shared.client
+            .from("plaid_account_links").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        var byKey = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<PlaidAccountLinkModel>()).map { ($0.plaidAccountId, $0) })
+        var changed = 0
+        for row in rows {
+            if let local = byKey[row.plaid_account_id] {
+                if local.plaidItemId != row.plaid_item_id { local.plaidItemId = row.plaid_item_id; changed += 1 }
+                if local.accountModelId != row.account_id { local.accountModelId = row.account_id; changed += 1 }
+            } else {
+                let l = PlaidAccountLinkModel(plaidAccountId: row.plaid_account_id, plaidItemId: row.plaid_item_id,
+                                              accountModelId: row.account_id, lastBalance: 0)
+                context.insert(l)
+                byKey[row.plaid_account_id] = l
+                changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    // MARK: - Plaid Transaction Links
+
+    private func pushPlaidTransactionLinks(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<PlaidTransactionLinkModel>())
+        let rows = local.map { l in
+            PlaidTransactionLinkRow(household_id: householdID, transaction_id: l.transactionModelId,
+                                    plaid_transaction_id: l.plaidTransactionId, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("plaid_transaction_links").upsert(rows, onConflict: "plaid_transaction_id").execute()
+        return rows.count
+    }
+
+    private func pullPlaidTransactionLinks(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [PlaidTransactionLinkRow] = try await SupabaseService.shared.client
+            .from("plaid_transaction_links").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+
+        var byKey = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<PlaidTransactionLinkModel>()).map { ($0.plaidTransactionId, $0) })
+        var changed = 0
+        for row in rows {
+            if let local = byKey[row.plaid_transaction_id] {
+                if local.transactionModelId != row.transaction_id { local.transactionModelId = row.transaction_id; changed += 1 }
+            } else {
+                let l = PlaidTransactionLinkModel(plaidTransactionId: row.plaid_transaction_id,
+                                                  transactionModelId: row.transaction_id,
+                                                  plaidAccountId: "", pending: false)
+                context.insert(l)
+                byKey[row.plaid_transaction_id] = l
                 changed += 1
             }
         }

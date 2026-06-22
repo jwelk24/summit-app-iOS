@@ -15,6 +15,28 @@ struct HouseholdMembership: Decodable, Sendable {
     let joined_at: Date
 }
 
+struct HouseholdInvite: Codable, Sendable {
+    let code: String
+    let household_id: UUID
+    let role: String
+    let created_by: UUID
+    let expires_at: Date
+    let used_at: Date?
+    let used_by: UUID?
+}
+
+private struct InviteInsert: Encodable, Sendable {
+    let code: String
+    let household_id: UUID
+    let role: String
+    let created_by: UUID
+    let expires_at: Date
+}
+
+private struct RedeemParams: Encodable, Sendable {
+    let invite_code: String
+}
+
 enum HouseholdRole: String, Sendable {
     case owner
     case member
@@ -49,6 +71,7 @@ final class HouseholdService {
                 .from("household_members")
                 .select()
                 .eq("user_id", value: userID.uuidString.lowercased())
+                .order("joined_at", ascending: false)
                 .execute()
                 .value
 
@@ -70,6 +93,52 @@ final class HouseholdService {
             lastError = nil
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    func createInvite(role: HouseholdRole = .member, expiresInDays: Int = 7) async throws -> String {
+        guard let household = currentHousehold else { throw HouseholdError.noHousehold }
+        guard let userID = SupabaseService.shared.currentUserID else { throw HouseholdError.notAuthenticated }
+        guard currentRole?.canInvite == true else { throw HouseholdError.notOwner }
+
+        let code = Self.generateInviteCode()
+        let expires = Date().addingTimeInterval(TimeInterval(expiresInDays) * 86_400)
+        let payload = InviteInsert(code: code, household_id: household.id,
+                                   role: role.rawValue, created_by: userID,
+                                   expires_at: expires)
+        try await SupabaseService.shared.client.from("household_invites").insert(payload).execute()
+        return code
+    }
+
+    func redeemInvite(code: String) async throws {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !trimmed.isEmpty else { throw HouseholdError.invalidCode }
+        let params = RedeemParams(invite_code: trimmed)
+        try await SupabaseService.shared.client
+            .rpc("redeem_household_invite", params: params)
+            .execute()
+        await refresh()
+    }
+
+    private static func generateInviteCode() -> String {
+        // 8-char Crockford base32-ish alphabet, no ambiguous chars (no 0/O, 1/I/L).
+        let alphabet = Array("ABCDEFGHJKMNPQRSTUVWXYZ23456789")
+        return String((0..<8).map { _ in alphabet.randomElement()! })
+    }
+}
+
+enum HouseholdError: LocalizedError {
+    case notAuthenticated
+    case noHousehold
+    case notOwner
+    case invalidCode
+
+    var errorDescription: String? {
+        switch self {
+        case .notAuthenticated: return "Sign in first."
+        case .noHousehold: return "No household available."
+        case .notOwner: return "Only the household owner can create invites."
+        case .invalidCode: return "Enter a valid invite code."
         }
     }
 }
