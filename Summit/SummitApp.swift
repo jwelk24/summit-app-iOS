@@ -71,6 +71,9 @@ struct SummitApp: App {
             case .active:
                 Task { @MainActor in
                     SpendingTodayActivityManager.startOrUpdate(context: sharedModelContainer.mainContext)
+                    await SupabaseService.shared.loadUser()
+                    await HouseholdService.shared.refresh()
+                    await SyncService.shared.syncIfDue(context: sharedModelContainer.mainContext)
                 }
             default:
                 break

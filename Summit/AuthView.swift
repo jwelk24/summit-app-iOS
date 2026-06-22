@@ -85,6 +85,7 @@ struct AuthView: View {
             .task {
                 await supabase.loadUser()
                 await household.refresh()
+                await sync.syncIfDue(context: modelContext)
             }
         }
     }

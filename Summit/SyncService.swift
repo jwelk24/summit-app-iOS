@@ -94,6 +94,13 @@ final class SyncService {
 
     private init() {}
 
+    private let throttleInterval: TimeInterval = 15
+
+    func syncIfDue(context: ModelContext) async {
+        if let last = lastSyncedAt, Date().timeIntervalSince(last) < throttleInterval { return }
+        await syncAccounts(context: context)
+    }
+
     func syncAccounts(context: ModelContext) async {
         guard Premium.isActive else { return }
         guard SupabaseService.shared.isAuthenticated else {
