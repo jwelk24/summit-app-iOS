@@ -67,6 +67,7 @@ struct SummitApp: App {
                 Task { @MainActor in
                     SummitSnapshotWriter.write(context: sharedModelContainer.mainContext)
                     SpendingTodayActivityManager.startOrUpdate(context: sharedModelContainer.mainContext)
+                    await RealtimeService.shared.stop()
                 }
             case .active:
                 Task { @MainActor in
@@ -74,6 +75,9 @@ struct SummitApp: App {
                     await SupabaseService.shared.loadUser()
                     await HouseholdService.shared.refresh()
                     await SyncService.shared.syncIfDue(context: sharedModelContainer.mainContext)
+                    if let householdID = HouseholdService.shared.currentHousehold?.id {
+                        await RealtimeService.shared.start(context: sharedModelContainer.mainContext, householdID: householdID)
+                    }
                 }
             default:
                 break

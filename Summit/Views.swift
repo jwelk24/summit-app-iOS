@@ -17,6 +17,7 @@ struct BudgetView: View {
     @State private var showingMove = false
     @State private var showingManageCategories = false
     @State private var showingRename = false
+    @State private var showingSync = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -182,8 +183,10 @@ struct BudgetView: View {
                                 )
                             }
                         }
+                        .summitRowBackground()
                     }
                 }
+                .summitListBackground()
             }
             .navigationTitle(budgetTitle)
             .toolbar {
@@ -225,6 +228,14 @@ struct BudgetView: View {
                             Label("Customize Tabs", systemImage: "rectangle.3.group")
                         }
                         .accessibilityIdentifier("customizeTabsButton")
+
+                        Divider()
+
+                        Button {
+                            showingSync = true
+                        } label: {
+                            Label("Sync & Account", systemImage: "icloud")
+                        }
                     } label: {
                         Label("Actions", systemImage: "ellipsis.circle")
                     }
@@ -244,6 +255,9 @@ struct BudgetView: View {
             .sheet(isPresented: $showingRename) {
                 CustomizeTabsView()
             }
+            .sheet(isPresented: $showingSync) {
+                NavigationStack { AuthView() }
+            }
             .accessibilityIdentifier("budgetScreen")
         }
     }
@@ -259,13 +273,10 @@ struct TabIdentity: Identifiable {
     let defaultIcon: String
 }
 
-let tabIdentities: [TabIdentity] = [
-    TabIdentity(id: "budget", titleKey: "budgetTitle", iconKey: "budgetIcon", defaultTitle: "Budget", defaultIcon: "list.bullet.rectangle"),
-    TabIdentity(id: "transactions", titleKey: "transactionsTitle", iconKey: "transactionsIcon", defaultTitle: "Transactions", defaultIcon: "creditcard"),
-    TabIdentity(id: "netWorth", titleKey: "netWorthTitle", iconKey: "netWorthIcon", defaultTitle: "Net Worth", defaultIcon: "chart.line.uptrend.xyaxis"),
-    TabIdentity(id: "horizon", titleKey: "horizonTitle", iconKey: "horizonIcon", defaultTitle: "Horizon", defaultIcon: "mountain.2"),
-    TabIdentity(id: "reports", titleKey: "reportsTitle", iconKey: "reportsIcon", defaultTitle: "Reports", defaultIcon: "chart.pie"),
-]
+let tabIdentities: [TabIdentity] = TabKind.allCases.map {
+    TabIdentity(id: $0.rawValue, titleKey: $0.titleKey, iconKey: $0.iconKey,
+                defaultTitle: $0.defaultTitle, defaultIcon: $0.defaultIcon)
+}
 
 let curatedTabIcons: [String] = [
     "list.bullet.rectangle", "list.bullet", "rectangle.stack",
@@ -287,9 +298,50 @@ let curatedTabIcons: [String] = [
 struct CustomizeTabsView: View {
     @Environment(\.dismiss) private var dismiss
 
+    @AppStorage("tabOrder") private var tabOrderRaw: String = defaultTabOrder
+    @AppStorage("appAccentHex") private var appAccentHex: String = ""
+    @AppStorage("appBackgroundHex") private var appBackgroundHex: String = ""
+    @AppStorage("appRowBgHex") private var appRowBgHex: String = ""
+
+    @State private var orderedKinds: [TabKind] = []
+    @State private var accentColor: Color = .accentColor
+    @State private var backgroundColor: Color = .clear
+    @State private var useCustomBackground: Bool = false
+    @State private var rowColor: Color = .clear
+    @State private var useCustomRow: Bool = false
+
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    ColorPicker("Accent color", selection: $accentColor, supportsOpacity: false)
+                    Toggle("Custom page background", isOn: $useCustomBackground)
+                    if useCustomBackground {
+                        ColorPicker("Page background", selection: $backgroundColor, supportsOpacity: false)
+                    }
+                    Toggle("Custom row background", isOn: $useCustomRow)
+                    if useCustomRow {
+                        ColorPicker("Row background", selection: $rowColor, supportsOpacity: false)
+                    }
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Accent tints buttons. Page background fills behind lists. Row background fills each list row.")
+                }
+                .summitRowBackground()
+
+                Section {
+                    ForEach(orderedKinds) { kind in
+                        Label(currentTitle(for: kind), systemImage: currentIcon(for: kind))
+                    }
+                    .onMove(perform: move)
+                } header: {
+                    Text("Tab Order")
+                } footer: {
+                    Text("Drag the handles to reorder. iPhone shows the first five; the rest live in More.")
+                }
+                .summitRowBackground()
+
                 Section {
                     ForEach(tabIdentities) { identity in
                         NavigationLink {
@@ -299,18 +351,70 @@ struct CustomizeTabsView: View {
                         }
                     }
                 } header: {
-                    Text("Tabs")
+                    Text("Labels & Icons")
                 } footer: {
-                    Text("Tap a tab to change its label or icon. The new name appears both on the bottom bar and at the top of that screen.")
+                    Text("Tap a tab to change its label or icon.")
                 }
+                .summitRowBackground()
             }
-            .navigationTitle("Customize Tabs")
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Customize")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
             }
+            .onAppear {
+                let saved = tabOrderRaw.split(separator: ",").compactMap { TabKind(rawValue: String($0)) }
+                let missing = TabKind.allCases.filter { !saved.contains($0) }
+                orderedKinds = saved + missing
+                accentColor = Color(hex: appAccentHex) ?? .accentColor
+                useCustomBackground = !appBackgroundHex.isEmpty
+                backgroundColor = Color(hex: appBackgroundHex) ?? Color(.systemGroupedBackground)
+                useCustomRow = !appRowBgHex.isEmpty
+                rowColor = Color(hex: appRowBgHex) ?? Color(.secondarySystemGroupedBackground)
+            }
+            .onChange(of: accentColor) { _, newValue in
+                appAccentHex = newValue.toHex() ?? ""
+            }
+            .onChange(of: backgroundColor) { _, newValue in
+                if useCustomBackground {
+                    appBackgroundHex = newValue.toHex() ?? ""
+                }
+            }
+            .onChange(of: useCustomBackground) { _, newValue in
+                if newValue {
+                    appBackgroundHex = backgroundColor.toHex() ?? ""
+                } else {
+                    appBackgroundHex = ""
+                }
+            }
+            .onChange(of: rowColor) { _, newValue in
+                if useCustomRow {
+                    appRowBgHex = newValue.toHex() ?? ""
+                }
+            }
+            .onChange(of: useCustomRow) { _, newValue in
+                if newValue {
+                    appRowBgHex = rowColor.toHex() ?? ""
+                } else {
+                    appRowBgHex = ""
+                }
+            }
         }
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        orderedKinds.move(fromOffsets: source, toOffset: destination)
+        tabOrderRaw = orderedKinds.map(\.rawValue).joined(separator: ",")
+    }
+
+    private func currentTitle(for kind: TabKind) -> String {
+        UserDefaults.standard.string(forKey: kind.titleKey) ?? kind.defaultTitle
+    }
+
+    private func currentIcon(for kind: TabKind) -> String {
+        UserDefaults.standard.string(forKey: kind.iconKey) ?? kind.defaultIcon
     }
 }
 
@@ -363,6 +467,7 @@ private struct TabAppearanceEditor: View {
             Section("Label") {
                 TextField(identity.defaultTitle, text: $draftTitle)
             }
+            .summitRowBackground()
 
             Section("Icon") {
                 LazyVGrid(columns: gridColumns, spacing: 8) {
@@ -383,6 +488,7 @@ private struct TabAppearanceEditor: View {
                 }
                 .padding(.vertical, 4)
             }
+            .summitRowBackground()
 
             Section {
                 Button("Reset to Default") {
@@ -390,6 +496,7 @@ private struct TabAppearanceEditor: View {
                     draftIcon = identity.defaultIcon
                 }
             }
+            .summitRowBackground()
         }
         .navigationTitle("Customize \(identity.defaultTitle)")
         .toolbar {
@@ -694,6 +801,7 @@ struct TransactionsView: View {
                 }
                 .onDelete(perform: delete)
             }
+            .summitListBackground()
             .navigationTitle(transactionsTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -963,6 +1071,7 @@ private struct TransactionEditor: View {
                 } header: {
                     Text(splits.isEmpty ? "Optional" : "Splits")
                 }
+                .summitRowBackground()
             }
             .navigationTitle(editing == nil ? "New Transaction" : "Edit Transaction")
             .toolbar {
@@ -1236,6 +1345,7 @@ struct NetWorthView: View {
                         Text("-\(currency(totalLiabilities))")
                     }
                 }
+                .summitRowBackground()
 
                 Section {
                     HStack {
@@ -1283,6 +1393,7 @@ struct NetWorthView: View {
                 } header: {
                     Text("Trend")
                 }
+                .summitRowBackground()
 
                 if !linkedPlaidItems.isEmpty {
                     Section("Linked Banks") {
@@ -1321,6 +1432,7 @@ struct NetWorthView: View {
                         }
                         .disabled(syncingItemId != nil)
                     }
+                    .summitRowBackground()
                 }
 
                 if !allAssets.isEmpty {
@@ -1337,6 +1449,7 @@ struct NetWorthView: View {
                             }
                         }
                     }
+                    .summitRowBackground()
                 }
 
                 if !allLiabilities.isEmpty {
@@ -1353,6 +1466,7 @@ struct NetWorthView: View {
                             }
                         }
                     }
+                    .summitRowBackground()
                 }
 
                 if accounts.isEmpty {
@@ -1360,8 +1474,10 @@ struct NetWorthView: View {
                         Text("Add your first account using the + button.")
                             .foregroundStyle(.secondary)
                     }
+                    .summitRowBackground()
                 }
             }
+            .summitListBackground()
             .navigationTitle(netWorthTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -1577,6 +1693,7 @@ struct HorizonView: View {
                         }
                     }
                 }
+                .summitRowBackground()
 
                 if !due.isEmpty {
                     Section("Pending (Past Due)") {
@@ -1605,6 +1722,7 @@ struct HorizonView: View {
                             }
                         }
                     }
+                    .summitRowBackground()
                 }
 
                 Section("Next 90 Days") {
@@ -1636,7 +1754,9 @@ struct HorizonView: View {
                         }
                     }
                 }
+                .summitRowBackground()
             }
+            .summitListBackground()
             .navigationTitle(horizonTitle)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -1758,6 +1878,7 @@ struct CategoriesManagementView: View {
                         .foregroundStyle(.tint)
                     }
                 }
+                .summitRowBackground()
             }
 
             Section("Danger Zone") {
@@ -1766,6 +1887,7 @@ struct CategoriesManagementView: View {
                 }
                 .accessibilityIdentifier("resetAllDataButton")
             }
+            .summitRowBackground()
         }
         .navigationTitle("Manage Categories")
         .toolbar {
@@ -1827,10 +1949,12 @@ private struct GroupEditor: View {
                     TextField("Name", text: $name)
                     Stepper("Order: \(sort)", value: $sort, in: 0...99)
                 }
+                .summitRowBackground()
                 if editing != nil {
                     Section {
                         Button("Delete Group", role: .destructive) { showDeleteAlert = true }
                     }
+                    .summitRowBackground()
                 }
             }
             .navigationTitle(editing == nil ? "New Group" : "Edit Group")
@@ -1920,6 +2044,7 @@ private struct CategoryEditor: View {
                     }
                     Stepper("Order: \(sort)", value: $sort, in: 0...99)
                 }
+                .summitRowBackground()
 
                 Section("Goal (optional)") {
                     Toggle("Set a goal", isOn: $hasGoal)
@@ -1940,6 +2065,7 @@ private struct CategoryEditor: View {
                         }
                     }
                 }
+                .summitRowBackground()
 
                 if editing != nil {
                     Section {
@@ -1951,6 +2077,7 @@ private struct CategoryEditor: View {
                         .disabled((groups.flatMap(\.categories).count) < 2)
                         Button("Delete Category", role: .destructive) { showDeleteAlert = true }
                     }
+                    .summitRowBackground()
                 }
             }
             .navigationTitle(editing == nil ? "New Category" : "Edit Category")
@@ -2077,12 +2204,14 @@ private struct MergeCategorySheet: View {
                         }
                     }
                 }
+                .summitRowBackground()
 
                 Section {
                     Text("\(source.transactions.count) transaction(s) and \(source.allocations.count) budget allocation(s) will be re-pointed at the target. The source category and its goal (if any) will be deleted.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .summitRowBackground()
             }
             .navigationTitle("Merge Category")
             .toolbar {
@@ -2150,6 +2279,7 @@ private struct AccountEditor: View {
                     TextField("Currency Code", text: $currencyCode)
                     #endif
                 }
+                .summitRowBackground()
 
                 if !type.isAsset {
                     Section {
@@ -2157,6 +2287,7 @@ private struct AccountEditor: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .summitRowBackground()
                 }
 
                 if let acc = editing {
@@ -2197,12 +2328,14 @@ private struct AccountEditor: View {
                     } header: {
                         Text("Balance History")
                     }
+                    .summitRowBackground()
                 }
 
                 if editing != nil {
                     Section {
                         Button("Delete Account", role: .destructive) { showDeleteAlert = true }
                     }
+                    .summitRowBackground()
                 }
             }
             .navigationTitle(editing == nil ? "New Account" : "Edit Account")
@@ -2328,6 +2461,7 @@ struct AccountRegisterView: View {
                     .accessibilityIdentifier("reconcileButton")
                 }
             }
+            .summitRowBackground()
 
             Section("Transactions") {
                 if rows.isEmpty {
@@ -2348,6 +2482,7 @@ struct AccountRegisterView: View {
                     }
                 }
             }
+            .summitRowBackground()
         }
         .navigationTitle(account.name)
         .toolbar {
@@ -2448,6 +2583,7 @@ private struct ReconcileSheet: View {
                 } header: {
                     Text("Reconcile \(account.name)")
                 }
+                .summitRowBackground()
 
                 if let delta = pendingDelta {
                     Section("Difference") {
@@ -2469,6 +2605,7 @@ private struct ReconcileSheet: View {
                                 .foregroundStyle(delta >= 0 ? AnyShapeStyle(Color.green) : AnyShapeStyle(Color.red))
                         }
                     }
+                    .summitRowBackground()
                 }
             }
             .navigationTitle("Reconcile")
@@ -2553,17 +2690,20 @@ private struct SnapshotEditor: View {
                     TextField("Balance", text: $balanceText)
                     #endif
                 }
+                .summitRowBackground()
 
                 Section {
                     Text("\(account.name) was worth this amount on the selected date. The chart will use the most recent snapshot before a given date as its anchor, then layer transactions on top.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .summitRowBackground()
 
                 if editing != nil {
                     Section {
                         Button("Delete Snapshot", role: .destructive) { showDeleteAlert = true }
                     }
+                    .summitRowBackground()
                 }
             }
             .navigationTitle(editing == nil ? "New Snapshot" : "Edit Snapshot")
@@ -2657,11 +2797,13 @@ private struct ScheduledEditor: View {
                     TextField("Amount", text: $amountText)
                     #endif
                 }
+                .summitRowBackground()
 
                 Section("Schedule") {
                     DatePicker("Next Date", selection: $nextDate, displayedComponents: .date)
                     Stepper("Every \(intervalDays) day\(intervalDays == 1 ? "" : "s")", value: $intervalDays, in: 1...365)
                 }
+                .summitRowBackground()
 
                 Section("Defaults") {
                     Picker("Account", selection: $accountID) {
@@ -2677,11 +2819,13 @@ private struct ScheduledEditor: View {
                         }
                     }
                 }
+                .summitRowBackground()
 
                 if editing != nil {
                     Section {
                         Button("Delete Scheduled Item", role: .destructive) { showDeleteAlert = true }
                     }
+                    .summitRowBackground()
                 }
             }
             .navigationTitle(editing == nil ? "New Scheduled" : "Edit Scheduled")
@@ -3209,6 +3353,7 @@ struct ReportsView: View {
                         .frame(height: max(220, CGFloat(data.count) * 28))
                     }
                 }
+                .summitRowBackground()
 
                 Section("Income vs Spending (6 months)") {
                     let flows = sixMonthFlow
@@ -3245,7 +3390,9 @@ struct ReportsView: View {
                     }
                     .frame(height: 220)
                 }
+                .summitRowBackground()
             }
+            .summitListBackground()
             .navigationTitle(reportsTitle)
         }
     }

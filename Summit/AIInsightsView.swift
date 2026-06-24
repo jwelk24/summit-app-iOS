@@ -30,6 +30,7 @@ struct AIInsightsView: View {
                     unavailableSection(reason)
                 }
             }
+            .summitListBackground()
             .navigationTitle("Insights")
             .alert("AI Error", isPresented: errorBinding, presenting: errorMessage) { _ in
                 Button("OK") { errorMessage = nil }
@@ -84,6 +85,7 @@ struct AIInsightsView: View {
         } footer: {
             Text("Generated on-device. Nothing is sent to a server.")
         }
+        .summitRowBackground()
     }
 
     private var smartCategorizeSection: some View {
@@ -122,6 +124,7 @@ struct AIInsightsView: View {
         } header: {
             Text("Smart Categorize")
         }
+        .summitRowBackground()
     }
 
     private var aboutSection: some View {
@@ -130,6 +133,7 @@ struct AIInsightsView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
+        .summitRowBackground()
     }
 
     private func unavailableSection(_ reason: SystemLanguageModel.Availability.UnavailableReason) -> some View {
@@ -143,6 +147,7 @@ struct AIInsightsView: View {
             }
             .padding(.vertical, 4)
         }
+        .summitRowBackground()
     }
 
     private func reasonText(_ reason: SystemLanguageModel.Availability.UnavailableReason) -> String {

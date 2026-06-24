@@ -121,7 +121,28 @@ private struct LiabilityRow: Codable, Sendable {
     let origination_date: Date?
     let maturity_date: Date?
     let loan_name: String?
+    let raw_json: AnyJSON?
     let deleted_at: Date?
+}
+
+private enum RawJSONCodec {
+    static func encode(_ jsonString: String?) -> AnyJSON? {
+        guard let str = jsonString, !str.isEmpty,
+              let data = str.data(using: .utf8),
+              let value = try? AnyJSON.decoder.decode(AnyJSON.self, from: data) else {
+            return nil
+        }
+        return value
+    }
+
+    static func decode(_ value: AnyJSON?) -> String? {
+        guard let value = value, !value.isNil,
+              let data = try? AnyJSON.encoder.encode(value),
+              let str = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return str
+    }
 }
 
 private struct InvestmentHoldingRow: Codable, Sendable {
@@ -220,6 +241,78 @@ final class SyncService {
 
     private let throttleInterval: TimeInterval = 15
 
+    func deduplicateCategories(context: ModelContext) async {
+        isSyncing = true
+        defer { isSyncing = false }
+        lastError = nil
+
+        // Stop realtime so its incoming changes can't fire @Query refreshes mid-operation.
+        await RealtimeService.shared.stop()
+        defer {
+            if let householdID = HouseholdService.shared.currentHousehold?.id {
+                Task { await RealtimeService.shared.start(context: context, householdID: householdID) }
+            }
+        }
+
+        do {
+            // Step 1: Dedupe CategoryGroupModels by name. Pick the lexicographically smallest UUID
+            // so independent devices converge on the same survivor.
+            let groups = try context.fetch(FetchDescriptor<CategoryGroupModel>())
+            let groupsByName = Dictionary(grouping: groups, by: \.name)
+            for (_, dupes) in groupsByName where dupes.count > 1 {
+                let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
+                let survivor = sorted[0]
+                for dup in sorted.dropFirst() {
+                    for cat in Array(dup.categories) { cat.group = survivor }
+                    // Flush re-points so SwiftData's inverse update is committed
+                    // before we delete the dup group (otherwise cascade can hit re-pointed cats).
+                    try context.save()
+                    context.insert(SoftDeleteTombstone(table: "category_groups", recordID: dup.id))
+                    context.delete(dup)
+                    try context.save()
+                }
+            }
+
+            // Step 2: Dedupe CategoryModels by (group.id, name).
+            let categories = try context.fetch(FetchDescriptor<CategoryModel>())
+            let categoriesByKey = Dictionary(grouping: categories) { cat -> String in
+                let groupKey = cat.group.map(\.id.uuidString) ?? "_"
+                return "\(groupKey)|\(cat.name)"
+            }
+            for (_, dupes) in categoriesByKey where dupes.count > 1 {
+                let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
+                let survivor = sorted[0]
+                for dup in sorted.dropFirst() {
+                    for tx in Array(dup.transactions) { tx.category = survivor }
+                    for goal in Array(dup.goals) { goal.category = survivor }
+                    for alloc in Array(dup.allocations) { alloc.category = survivor }
+                    for split in Array(dup.splits) { split.category = survivor }
+                    try context.save()
+                    context.insert(SoftDeleteTombstone(table: "categories", recordID: dup.id))
+                    context.delete(dup)
+                    try context.save()
+                }
+            }
+        } catch {
+            lastError = error.localizedDescription
+            return
+        }
+    }
+
+    func resetLocalBudgets(context: ModelContext) async {
+        do {
+            let months = try context.fetch(FetchDescriptor<BudgetMonthModel>())
+            for m in months { context.delete(m) }
+            let orphanAllocs = try context.fetch(FetchDescriptor<BudgetAllocationModel>())
+            for a in orphanAllocs { context.delete(a) }
+            try context.save()
+            lastError = nil
+            await syncAccounts(context: context)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func syncIfDue(context: ModelContext) async {
         if let last = lastSyncedAt, Date().timeIntervalSince(last) < throttleInterval { return }
         await syncAccounts(context: context)
@@ -245,45 +338,65 @@ final class SyncService {
             var pushed = 0
             var pulled = 0
 
-            if canWrite {
-                pushed += try await pushAccounts(context: context, householdID: household.id)
-                pushed += try await pushCategoryGroups(context: context, householdID: household.id)
-                pushed += try await pushCategories(context: context, householdID: household.id)
-                pushed += try await pushGoals(context: context, householdID: household.id)
-                pushed += try await pushBudgetMonths(context: context, householdID: household.id)
-                pushed += try await pushBudgetAllocations(context: context, householdID: household.id)
-                pushed += try await pushScheduledItems(context: context, householdID: household.id)
-                pushed += try await pushLiabilities(context: context, householdID: household.id)
-                pushed += try await pushInvestmentHoldings(context: context, householdID: household.id)
-                pushed += try await pushInvestmentTransactions(context: context, householdID: household.id)
-                pushed += try await pushPlaidAccountLinks(context: context, householdID: household.id)
-                pushed += try await pushTransactions(context: context, householdID: household.id)
-                pushed += try await pushPlaidTransactionLinks(context: context, householdID: household.id)
-                pushed += try await pushTransactionSplits(context: context, householdID: household.id)
-                pushed += try await pushBalanceSnapshots(context: context, householdID: household.id)
-                pushed += try await pushDeletions(context: context, householdID: household.id)
+            var perTableErrors: [String] = []
+
+            func isCancellation(_ error: Error) -> Bool {
+                if error is CancellationError { return true }
+                if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+                return false
+            }
+            func runPush(_ label: String, _ work: () async throws -> Int) async {
+                do { pushed += try await work() }
+                catch { if !isCancellation(error) { perTableErrors.append("push \(label): \(error.localizedDescription)") } }
+            }
+            func runPull(_ label: String, _ work: () async throws -> Int) async {
+                do { pulled += try await work() }
+                catch { if !isCancellation(error) { perTableErrors.append("pull \(label): \(error.localizedDescription)") } }
             }
 
-            pulled += try await pullAccounts(context: context, householdID: household.id)
-            pulled += try await pullCategoryGroups(context: context, householdID: household.id)
-            pulled += try await pullCategories(context: context, householdID: household.id)
-            pulled += try await pullGoals(context: context, householdID: household.id)
-            pulled += try await pullBudgetMonths(context: context, householdID: household.id)
-            pulled += try await pullBudgetAllocations(context: context, householdID: household.id)
-            pulled += try await pullScheduledItems(context: context, householdID: household.id)
-            pulled += try await pullLiabilities(context: context, householdID: household.id)
-            pulled += try await pullInvestmentHoldings(context: context, householdID: household.id)
-            pulled += try await pullInvestmentTransactions(context: context, householdID: household.id)
-            pulled += try await pullPlaidAccountLinks(context: context, householdID: household.id)
-            pulled += try await pullTransactions(context: context, householdID: household.id)
-            pulled += try await pullPlaidTransactionLinks(context: context, householdID: household.id)
-            pulled += try await pullTransactionSplits(context: context, householdID: household.id)
-            pulled += try await pullBalanceSnapshots(context: context, householdID: household.id)
+            if canWrite {
+                await runPush("accounts") { try await pushAccounts(context: context, householdID: household.id) }
+                await runPush("category_groups") { try await pushCategoryGroups(context: context, householdID: household.id) }
+                await runPush("categories") { try await pushCategories(context: context, householdID: household.id) }
+                await runPush("goals") { try await pushGoals(context: context, householdID: household.id) }
+                await runPush("budget_months") { try await pushBudgetMonths(context: context, householdID: household.id) }
+                await runPush("budget_allocations") { try await pushBudgetAllocations(context: context, householdID: household.id) }
+                await runPush("scheduled_items") { try await pushScheduledItems(context: context, householdID: household.id) }
+                await runPush("liabilities") { try await pushLiabilities(context: context, householdID: household.id) }
+                await runPush("investment_holdings") { try await pushInvestmentHoldings(context: context, householdID: household.id) }
+                await runPush("investment_transactions") { try await pushInvestmentTransactions(context: context, householdID: household.id) }
+                await runPush("plaid_account_links") { try await pushPlaidAccountLinks(context: context, householdID: household.id) }
+                await runPush("transactions") { try await pushTransactions(context: context, householdID: household.id) }
+                await runPush("plaid_transaction_links") { try await pushPlaidTransactionLinks(context: context, householdID: household.id) }
+                await runPush("transaction_splits") { try await pushTransactionSplits(context: context, householdID: household.id) }
+                await runPush("balance_snapshots") { try await pushBalanceSnapshots(context: context, householdID: household.id) }
+                await runPush("deletions") { try await pushDeletions(context: context, householdID: household.id) }
+            }
+
+            await runPull("accounts") { try await pullAccounts(context: context, householdID: household.id) }
+            await runPull("category_groups") { try await pullCategoryGroups(context: context, householdID: household.id) }
+            await runPull("categories") { try await pullCategories(context: context, householdID: household.id) }
+            await runPull("goals") { try await pullGoals(context: context, householdID: household.id) }
+            await runPull("budget_months") { try await pullBudgetMonths(context: context, householdID: household.id) }
+            await runPull("budget_allocations") { try await pullBudgetAllocations(context: context, householdID: household.id) }
+            await runPull("scheduled_items") { try await pullScheduledItems(context: context, householdID: household.id) }
+            await runPull("liabilities") { try await pullLiabilities(context: context, householdID: household.id) }
+            await runPull("investment_holdings") { try await pullInvestmentHoldings(context: context, householdID: household.id) }
+            await runPull("investment_transactions") { try await pullInvestmentTransactions(context: context, householdID: household.id) }
+            await runPull("plaid_account_links") { try await pullPlaidAccountLinks(context: context, householdID: household.id) }
+            await runPull("transactions") { try await pullTransactions(context: context, householdID: household.id) }
+            await runPull("plaid_transaction_links") { try await pullPlaidTransactionLinks(context: context, householdID: household.id) }
+            await runPull("transaction_splits") { try await pullTransactionSplits(context: context, householdID: household.id) }
+            await runPull("balance_snapshots") { try await pullBalanceSnapshots(context: context, householdID: household.id) }
 
             lastPushCount = pushed
             lastPullCount = pulled
             lastSyncedAt = Date()
+            lastError = perTableErrors.first
+        } catch is CancellationError {
+            // Sync was interrupted (app backgrounded, realtime restart, etc). Silent.
         } catch {
+            if Task.isCancelled { return }
             lastError = error.localizedDescription
         }
     }
@@ -508,12 +621,18 @@ final class SyncService {
 
     private func pushBudgetMonths(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<BudgetMonthModel>())
-        let rows = local.map { m in
+        var seen = Set<String>()
+        let unique = local.filter { m in
+            let key = "\(m.year)-\(m.month)"
+            return seen.insert(key).inserted
+        }
+        let rows = unique.map { m in
             BudgetMonthRow(id: m.id, household_id: householdID, year: m.year, month: m.month,
                            carryover: m.carryover, deleted_at: nil)
         }
         guard !rows.isEmpty else { return 0 }
-        try await SupabaseService.shared.client.from("budget_months").upsert(rows, onConflict: "id").execute()
+        try await SupabaseService.shared.client.from("budget_months")
+            .upsert(rows, onConflict: "household_id,year,month").execute()
         return rows.count
     }
 
@@ -545,13 +664,17 @@ final class SyncService {
 
     private func pushBudgetAllocations(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<BudgetAllocationModel>())
+        var seen = Set<String>()
         let rows: [BudgetAllocationRow] = local.compactMap { a in
             guard let monthID = a.month?.id, let categoryID = a.category?.id else { return nil }
+            let key = "\(monthID.uuidString)-\(categoryID.uuidString)"
+            guard seen.insert(key).inserted else { return nil }
             return BudgetAllocationRow(id: a.id, household_id: householdID, month_id: monthID,
                                        category_id: categoryID, amount: a.amount, deleted_at: nil)
         }
         guard !rows.isEmpty else { return 0 }
-        try await SupabaseService.shared.client.from("budget_allocations").upsert(rows, onConflict: "id").execute()
+        try await SupabaseService.shared.client.from("budget_allocations")
+            .upsert(rows, onConflict: "month_id,category_id").execute()
         return rows.count
     }
 
@@ -635,13 +758,17 @@ final class SyncService {
 
     private func pushBalanceSnapshots(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<BalanceSnapshotModel>())
+        var seen = Set<String>()
         let rows: [BalanceSnapshotRow] = local.compactMap { s in
             guard let accountID = s.account?.id else { return nil }
+            let key = "\(accountID.uuidString)-\(s.date.timeIntervalSince1970)"
+            guard seen.insert(key).inserted else { return nil }
             return BalanceSnapshotRow(id: s.id, household_id: householdID, account_id: accountID,
                                       date: s.date, balance: s.balance, deleted_at: nil)
         }
         guard !rows.isEmpty else { return 0 }
-        try await SupabaseService.shared.client.from("balance_snapshots").upsert(rows, onConflict: "id").execute()
+        try await SupabaseService.shared.client.from("balance_snapshots")
+            .upsert(rows, onConflict: "account_id,date").execute()
         return rows.count
     }
 
@@ -683,7 +810,8 @@ final class SyncService {
                          last_payment_amount: l.lastPaymentAmount, last_payment_date: l.lastPaymentDate,
                          interest_rate_percentage: l.interestRatePercentage,
                          origination_principal: l.originationPrincipal, origination_date: l.originationDate,
-                         maturity_date: l.maturityDate, loan_name: l.loanName, deleted_at: nil)
+                         maturity_date: l.maturityDate, loan_name: l.loanName,
+                         raw_json: RawJSONCodec.encode(l.rawJSON), deleted_at: nil)
         }
         guard !rows.isEmpty else { return 0 }
         try await SupabaseService.shared.client.from("liabilities").upsert(rows, onConflict: "id").execute()
@@ -716,6 +844,8 @@ final class SyncService {
                 if local.originationDate != row.origination_date { local.originationDate = row.origination_date; changed += 1 }
                 if local.maturityDate != row.maturity_date { local.maturityDate = row.maturity_date; changed += 1 }
                 if local.loanName != row.loan_name { local.loanName = row.loan_name; changed += 1 }
+                let decodedRaw = RawJSONCodec.decode(row.raw_json)
+                if local.rawJSON != decodedRaw { local.rawJSON = decodedRaw; changed += 1 }
                 if local.account?.id != row.account_id { local.account = account; changed += 1 }
             } else {
                 let l = LiabilityModel(id: row.id, plaidAccountId: row.plaid_account_id, kind: kind,
@@ -724,7 +854,8 @@ final class SyncService {
                                        lastPaymentAmount: row.last_payment_amount, lastPaymentDate: row.last_payment_date,
                                        interestRatePercentage: row.interest_rate_percentage,
                                        originationPrincipal: row.origination_principal, originationDate: row.origination_date,
-                                       maturityDate: row.maturity_date, loanName: row.loan_name, account: account)
+                                       maturityDate: row.maturity_date, loanName: row.loan_name,
+                                       rawJSON: RawJSONCodec.decode(row.raw_json), account: account)
                 context.insert(l)
                 byID[row.id] = l
                 changed += 1

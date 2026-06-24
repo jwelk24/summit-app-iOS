@@ -16,10 +16,12 @@ struct AuthView: View {
     @State private var inviteBusy: Bool = false
     @State private var inviteMessage: String?
     @State private var appleNonce: String = ""
+    @State private var showResetBudgetsConfirm: Bool = false
 
-    private let supabase = SupabaseService.shared
-    private let household = HouseholdService.shared
-    private let sync = SyncService.shared
+    @State private var supabase = SupabaseService.shared
+    @State private var household = HouseholdService.shared
+    @State private var sync = SyncService.shared
+    @State private var realtime = RealtimeService.shared
 
     @Environment(\.modelContext) private var modelContext
 
@@ -74,9 +76,19 @@ struct AuthView: View {
                     }
                     LabeledContent("Pushed", value: "\(sync.lastPushCount)")
                     LabeledContent("Pulled", value: "\(sync.lastPullCount)")
+                    LabeledContent("Realtime", value: realtime.isConnected ? "Connected" : "Off")
+                        .foregroundStyle(realtime.isConnected ? .green : .secondary)
+                    if let last = realtime.lastEventAt {
+                        LabeledContent("Last event", value: last.formatted(date: .omitted, time: .shortened))
+                            .font(.caption)
+                    }
                     if let err = sync.lastError {
                         Text(err).foregroundStyle(.red).font(.caption)
                     }
+                    Button("Reset local budgets") {
+                        showResetBudgetsConfirm = true
+                    }
+                    .font(.caption)
                 }
 
                 if household.currentRole?.canInvite == true {
@@ -143,6 +155,19 @@ struct AuthView: View {
                 await supabase.loadUser()
                 await household.refresh()
                 await sync.syncIfDue(context: modelContext)
+                if let householdID = household.currentHousehold?.id {
+                    await RealtimeService.shared.start(context: modelContext, householdID: householdID)
+                }
+            }
+            .confirmationDialog("Reset local budgets?",
+                                isPresented: $showResetBudgetsConfirm,
+                                titleVisibility: .visible) {
+                Button("Delete local & pull from cloud", role: .destructive) {
+                    Task { await sync.resetLocalBudgets(context: modelContext) }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This wipes BudgetMonths and BudgetAllocations on this device, then re-downloads them from your household. Use this to fix sync conflicts from data created before joining a shared household.")
             }
         }
     }
