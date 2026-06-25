@@ -359,6 +359,8 @@ final class SyncService {
                 await runPush("category_groups") { try await pushCategoryGroups(context: context, householdID: household.id) }
                 await runPush("categories") { try await pushCategories(context: context, householdID: household.id) }
                 await runPush("goals") { try await pushGoals(context: context, householdID: household.id) }
+                // Auto-reconcile fresh-install budget_month seeds against server before pushing.
+                try? await reconcileLocalBudgetMonths(context: context, householdID: household.id)
                 await runPush("budget_months") { try await pushBudgetMonths(context: context, householdID: household.id) }
                 await runPush("budget_allocations") { try await pushBudgetAllocations(context: context, householdID: household.id) }
                 await runPush("scheduled_items") { try await pushScheduledItems(context: context, householdID: household.id) }
@@ -618,6 +620,31 @@ final class SyncService {
     }
 
     // MARK: - Budget Months
+
+    /// Before pushing, drop any local BudgetMonth whose (year, month) collides with an existing
+    /// server row that has a different UUID. This silently absorbs the seed-on-fresh-install
+    /// conflict so users don't see "violates foreign key constraint" and don't need to manually reset.
+    private func reconcileLocalBudgetMonths(context: ModelContext, householdID: UUID) async throws {
+        let serverRows: [BudgetMonthRow] = try await SupabaseService.shared.client
+            .from("budget_months").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil)
+            .execute().value
+        guard !serverRows.isEmpty else { return }
+
+        var serverByKey: [String: UUID] = [:]
+        for row in serverRows { serverByKey["\(row.year)-\(row.month)"] = row.id }
+
+        let local = try context.fetch(FetchDescriptor<BudgetMonthModel>())
+        var deleted = 0
+        for m in local {
+            if let serverID = serverByKey["\(m.year)-\(m.month)"], serverID != m.id {
+                context.delete(m)
+                deleted += 1
+            }
+        }
+        if deleted > 0 { try context.save() }
+    }
 
     private func pushBudgetMonths(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<BudgetMonthModel>())

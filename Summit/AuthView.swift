@@ -16,7 +16,6 @@ struct AuthView: View {
     @State private var inviteBusy: Bool = false
     @State private var inviteMessage: String?
     @State private var appleNonce: String = ""
-    @State private var showResetBudgetsConfirm: Bool = false
 
     @State private var supabase = SupabaseService.shared
     @State private var household = HouseholdService.shared
@@ -85,10 +84,6 @@ struct AuthView: View {
                     if let err = sync.lastError {
                         Text(err).foregroundStyle(.red).font(.caption)
                     }
-                    Button("Reset local budgets") {
-                        showResetBudgetsConfirm = true
-                    }
-                    .font(.caption)
                 }
 
                 if household.currentRole?.canInvite == true {
@@ -158,16 +153,6 @@ struct AuthView: View {
                 if let householdID = household.currentHousehold?.id {
                     await RealtimeService.shared.start(context: modelContext, householdID: householdID)
                 }
-            }
-            .confirmationDialog("Reset local budgets?",
-                                isPresented: $showResetBudgetsConfirm,
-                                titleVisibility: .visible) {
-                Button("Delete local & pull from cloud", role: .destructive) {
-                    Task { await sync.resetLocalBudgets(context: modelContext) }
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This wipes BudgetMonths and BudgetAllocations on this device, then re-downloads them from your household. Use this to fix sync conflicts from data created before joining a shared household.")
             }
         }
     }
