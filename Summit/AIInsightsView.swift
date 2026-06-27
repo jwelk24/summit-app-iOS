@@ -18,20 +18,36 @@ struct AIInsightsView: View {
 
     @State private var errorMessage: String?
 
+    @State private var entitlements = Entitlements.shared
+    @State private var showingPaywall = false
+
     var body: some View {
         NavigationStack {
-            List {
-                switch availability {
-                case .available:
-                    digestSection
-                    smartCategorizeSection
-                    aboutSection
-                case .unavailable(let reason):
-                    unavailableSection(reason)
+            Group {
+                if entitlements.canUseAIInsights {
+                    List {
+                        switch availability {
+                        case .available:
+                            digestSection
+                            smartCategorizeSection
+                            aboutSection
+                        case .unavailable(let reason):
+                            unavailableSection(reason)
+                        }
+                    }
+                    .summitListBackground()
+                } else {
+                    LockedFeatureCard(feature: .aiInsights) {
+                        showingPaywall = true
+                    }
+                    .frame(maxHeight: .infinity)
+                    .summitListBackground()
                 }
             }
-            .summitListBackground()
             .navigationTitle("Insights")
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
+            }
             .alert("AI Error", isPresented: errorBinding, presenting: errorMessage) { _ in
                 Button("OK") { errorMessage = nil }
             } message: { message in

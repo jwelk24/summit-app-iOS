@@ -1,4 +1,5 @@
 import Foundation
+import StoreKit
 import SwiftUI
 
 // MARK: - Tier
@@ -210,7 +211,11 @@ enum Premium {
 
 struct PaywallView: View {
     @Bindable private var entitlements = Entitlements.shared
+    @Bindable private var store = StoreKitService.shared
     @Environment(\.dismiss) private var dismiss
+
+    private var proProduct: Product? { store.product(for: .pro) }
+    private var premiumProduct: Product? { store.product(for: .premium) }
 
     var body: some View {
         NavigationStack {
@@ -241,28 +246,54 @@ struct PaywallView: View {
                     PaywallFeatureRow(icon: "icloud", title: "Cloud sync across devices")
                     PaywallFeatureRow(icon: "calendar", title: "30-day cash-flow forecast")
                     PaywallFeatureRow(icon: "chart.pie", title: "Reports & 12-month history")
-                } header: {
-                    HStack {
-                        Text("Summit Pro")
-                        Spacer()
-                        Text(SubscriptionTier.pro.monthlyPriceLabel)
-                            .foregroundStyle(.secondary)
+                    PaywallTierCTA(
+                        tier: .pro,
+                        product: proProduct,
+                        isCurrent: entitlements.tier == .pro,
+                        isWorking: store.purchaseInProgress
+                    ) {
+                        if let proProduct {
+                            Task { await store.purchase(proProduct) }
+                        }
                     }
+                } header: {
+                    PaywallTierHeader(tier: .pro, product: proProduct)
                 }
 
                 Section {
                     ForEach(PremiumFeature.allCases, id: \.self) { feature in
                         PaywallFeatureRow(icon: feature.icon, title: feature.title)
                     }
-                } header: {
-                    HStack {
-                        Text("Summit Premium")
-                        Spacer()
-                        Text(SubscriptionTier.premium.monthlyPriceLabel)
-                            .foregroundStyle(.secondary)
+                    PaywallTierCTA(
+                        tier: .premium,
+                        product: premiumProduct,
+                        isCurrent: entitlements.tier == .premium,
+                        isWorking: store.purchaseInProgress
+                    ) {
+                        if let premiumProduct {
+                            Task { await store.purchase(premiumProduct) }
+                        }
                     }
+                } header: {
+                    PaywallTierHeader(tier: .premium, product: premiumProduct)
                 } footer: {
                     Text("Everything in Pro, plus every advanced feature.")
+                }
+
+                Section {
+                    Button {
+                        Task { await store.restore() }
+                    } label: {
+                        Label("Restore Purchases", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(store.purchaseInProgress)
+                    .accessibilityIdentifier("restorePurchasesButton")
+                } footer: {
+                    if let err = store.lastError {
+                        Text(err).foregroundStyle(.red)
+                    } else {
+                        Text("Subscriptions auto-renew until cancelled. Manage in Settings → Apple ID → Subscriptions.")
+                    }
                 }
 
                 #if DEBUG
@@ -277,9 +308,14 @@ struct PaywallView: View {
                     }
                     .accessibilityIdentifier("devTierPicker")
 
-                    Button("Start 14-day trial") { entitlements.startTrial() }
+                    Button("Start 30-day trial") { entitlements.startTrial(days: 30) }
                     Button("End trial", role: .destructive) { entitlements.endTrial() }
                         .disabled(entitlements.trialExpiresAt == nil)
+
+                    LabeledContent("Products loaded", value: "\(store.availableProducts.count)")
+                    if store.isLoadingProducts {
+                        HStack { ProgressView(); Text("Loading products…") }
+                    }
                 }
                 #endif
             }
@@ -290,6 +326,66 @@ struct PaywallView: View {
                 }
             }
         }
+    }
+}
+
+private struct PaywallTierHeader: View {
+    let tier: SubscriptionTier
+    let product: Product?
+
+    var body: some View {
+        HStack {
+            Text("Summit \(tier.displayName)")
+            Spacer()
+            if let product {
+                Text("\(product.displayPrice)/mo")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(tier.monthlyPriceLabel)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct PaywallTierCTA: View {
+    let tier: SubscriptionTier
+    let product: Product?
+    let isCurrent: Bool
+    let isWorking: Bool
+    let onSubscribe: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let trial = product?.subscription?.introOfferLabel {
+                Label("\(trial) free, then \(product?.displayPrice ?? tier.monthlyPriceLabel)",
+                      systemImage: "gift")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Button {
+                onSubscribe()
+            } label: {
+                HStack {
+                    if isWorking {
+                        ProgressView().tint(.white)
+                    } else if isCurrent {
+                        Label("Current Plan", systemImage: "checkmark")
+                            .frame(maxWidth: .infinity)
+                    } else if product == nil {
+                        Label("Unavailable", systemImage: "exclamationmark.triangle")
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Subscribe to \(tier.displayName)")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isWorking || isCurrent || product == nil)
+            .accessibilityIdentifier("subscribe_\(tier.rawValue)")
+        }
+        .padding(.vertical, 4)
     }
 }
 

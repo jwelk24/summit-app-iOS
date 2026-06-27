@@ -38,6 +38,8 @@ struct RootView: View {
     @AppStorage("appAccentHex") private var appAccentHex: String = ""
     @AppStorage("appBackgroundHex") private var appBackgroundHex: String = ""
 
+    @State private var selectedTab: TabKind = .budget
+
     private var orderedTabs: [TabKind] {
         let saved = tabOrderRaw.split(separator: ",").compactMap { TabKind(rawValue: String($0)) }
         let missing = TabKind.allCases.filter { !saved.contains($0) }
@@ -45,25 +47,35 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             ForEach(orderedTabs) { tab in
                 tabContent(for: tab)
+                    .tag(tab)
                     .tabItem { TabLabel(kind: tab) }
             }
         }
         .tint(Color(hex: appAccentHex) ?? .accentColor)
+        .monospacedDigit()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            SummitSyncHUD()
+        }
     }
 
     @ViewBuilder
     private func tabContent(for tab: TabKind) -> some View {
-        switch tab {
-        case .budget: BudgetView()
-        case .transactions: TransactionsView()
-        case .netWorth: NetWorthView()
-        case .horizon: HorizonView()
-        case .reports: ReportsView()
-        case .insights: AIInsightsView()
+        Group {
+            switch tab {
+            case .budget: BudgetView()
+            case .transactions: TransactionsView()
+            case .netWorth: NetWorthView()
+            case .horizon: HorizonView()
+            case .reports: ReportsView()
+            case .insights: AIInsightsView()
+            }
         }
+        .transition(.opacity)
+        .id(tab)
+        .animation(.smooth(duration: 0.22), value: selectedTab)
     }
 }
 
@@ -80,6 +92,50 @@ private struct TabLabel: View {
 
     var body: some View {
         Label(title, systemImage: icon)
+    }
+}
+
+@Observable
+@MainActor
+final class AppSyncStatus {
+    static let shared = AppSyncStatus()
+    private init() {}
+
+    private(set) var activePlaidSyncs: Int = 0
+    private(set) var lastError: String?
+
+    var isPlaidSyncing: Bool { activePlaidSyncs > 0 }
+
+    func beginPlaidSync() { activePlaidSyncs += 1 }
+
+    func endPlaidSync(error: Error? = nil) {
+        activePlaidSyncs = max(0, activePlaidSyncs - 1)
+        if let error { lastError = error.localizedDescription }
+    }
+
+    func clearError() { lastError = nil }
+}
+
+struct SummitSyncHUD: View {
+    private let syncService = SyncService.shared
+    private let appSync = AppSyncStatus.shared
+
+    var body: some View {
+        let isSyncing = syncService.isSyncing || appSync.isPlaidSyncing
+        ZStack {
+            if isSyncing {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(.accentColor)
+                    .frame(height: 2)
+                    .transition(.opacity)
+                    .accessibilityLabel("Syncing")
+                    .accessibilityIdentifier("syncHUD")
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: isSyncing ? 2 : 0)
+        .animation(.smooth(duration: 0.2), value: isSyncing)
     }
 }
 

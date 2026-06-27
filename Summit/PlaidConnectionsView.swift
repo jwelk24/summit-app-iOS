@@ -12,6 +12,12 @@ struct PlaidConnectionsView: View {
     @State private var status: StatusMessage?
     @State private var syncingItemId: String?
     @State private var creatingLinkToken = false
+    @State private var entitlements = Entitlements.shared
+    @State private var showingPaywall = false
+
+    private var atLinkCap: Bool {
+        items.count >= entitlements.maxPlaidItems
+    }
 
     var body: some View {
         List {
@@ -32,15 +38,32 @@ struct PlaidConnectionsView: View {
             }
 
             Section {
-                Button {
-                    Task { await startLink() }
-                } label: {
-                    HStack {
-                        Image(systemName: "link.badge.plus")
-                        Text(creatingLinkToken ? "Preparing Plaid Link…" : "Link a Bank with Plaid")
+                if atLinkCap {
+                    Button {
+                        showingPaywall = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "lock.fill")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Upgrade to link more banks")
+                                Text("Pro is limited to \(entitlements.maxPlaidItems) banks.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
+                    .accessibilityIdentifier("plaidLinkUpgradeButton")
+                } else {
+                    Button {
+                        Task { await startLink() }
+                    } label: {
+                        HStack {
+                            Image(systemName: "link.badge.plus")
+                            Text(creatingLinkToken ? "Preparing Plaid Link…" : "Link a Bank with Plaid")
+                        }
+                    }
+                    .disabled(creatingLinkToken)
                 }
-                .disabled(creatingLinkToken)
             }
 
             if let status {
@@ -53,6 +76,9 @@ struct PlaidConnectionsView: View {
         .navigationTitle("Plaid Connections")
         .sheet(item: $linkSession) { session in
             PlaidLinkSheet(session: session, onResult: handleLinkResult)
+        }
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView()
         }
         .onAppear { reloadItems() }
     }
@@ -108,15 +134,22 @@ struct PlaidConnectionsView: View {
     private func sync(_ item: PlaidKeychain.StoredItem) async {
         syncingItemId = item.itemId
         defer { syncingItemId = nil }
+        AppSyncStatus.shared.beginPlaidSync()
         do {
             let service = PlaidSyncService(context: context)
-            let result = try await service.syncAll(for: item)
+            let result = try await service.syncAll(
+                for: item,
+                includeInvestments: entitlements.canTrackInvestments,
+                includeLiabilities: entitlements.canTrackLiabilities
+            )
             status = StatusMessage(
                 text: "Synced \(result.accounts) acct · tx +\(result.transactionsAdded) ~\(result.transactionsModified) -\(result.transactionsRemoved) · holdings \(result.holdings) · inv-tx \(result.investmentTransactions) · liab \(result.liabilities)",
                 isError: false
             )
+            AppSyncStatus.shared.endPlaidSync()
         } catch {
             status = StatusMessage(text: "Sync failed: \(error.localizedDescription)", isError: true)
+            AppSyncStatus.shared.endPlaidSync(error: error)
         }
     }
 

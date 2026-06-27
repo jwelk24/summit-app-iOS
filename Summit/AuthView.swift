@@ -23,6 +23,8 @@ struct AuthView: View {
     @State private var household = HouseholdService.shared
     @State private var sync = SyncService.shared
     @State private var realtime = RealtimeService.shared
+    @State private var entitlements = Entitlements.shared
+    @State private var showingPaywall = false
 
     @Environment(\.modelContext) private var modelContext
 
@@ -41,23 +43,55 @@ struct AuthView: View {
                     LabeledContent("Email", value: supabase.currentEmail ?? "—")
                 }
 
-                Section("Household") {
-                    if household.isLoading {
-                        ProgressView()
-                    } else if let h = household.currentHousehold {
-                        LabeledContent("Name", value: h.name)
-                        LabeledContent("Role", value: household.currentRole?.rawValue.capitalized ?? "—")
-                        LabeledContent("ID", value: h.id.uuidString)
-                            .font(.caption.monospaced())
-                    } else {
-                        Text("No household found.")
-                            .foregroundStyle(.secondary)
+                Section("Subscription") {
+                    HStack(spacing: 12) {
+                        Image(systemName: entitlements.tier == .premium ? "crown.fill" : "checkmark.seal.fill")
+                            .foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Summit \(entitlements.tier.displayName)")
+                                .font(.headline)
+                            if let days = entitlements.trialDaysRemaining {
+                                Text("Trial: \(days) day\(days == 1 ? "" : "s") remaining")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    if let err = household.lastError {
-                        Text(err).foregroundStyle(.red).font(.caption)
+                    Button {
+                        showingPaywall = true
+                    } label: {
+                        Label("Manage Subscription", systemImage: "creditcard")
                     }
-                    Button("Reload") {
-                        Task { await household.refresh() }
+                    .accessibilityIdentifier("manageSubscriptionButton")
+                }
+
+                if entitlements.canUseHousehold {
+                    Section("Household") {
+                        if household.isLoading {
+                            ProgressView()
+                        } else if let h = household.currentHousehold {
+                            LabeledContent("Name", value: h.name)
+                            LabeledContent("Role", value: household.currentRole?.rawValue.capitalized ?? "—")
+                            LabeledContent("ID", value: h.id.uuidString)
+                                .font(.caption.monospaced())
+                        } else {
+                            Text("No household found.")
+                                .foregroundStyle(.secondary)
+                        }
+                        if let err = household.lastError {
+                            Text(err).foregroundStyle(.red).font(.caption)
+                        }
+                        Button("Reload") {
+                            Task { await household.refresh() }
+                        }
+                    }
+                } else {
+                    Section("Family Sharing") {
+                        LockedFeatureCard(feature: .household) {
+                            showingPaywall = true
+                        }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                     }
                 }
 
@@ -88,7 +122,7 @@ struct AuthView: View {
                     }
                 }
 
-                if household.currentRole?.canInvite == true {
+                if entitlements.canUseHousehold && household.currentRole?.canInvite == true {
                     Section("Invite a member") {
                         if let code = generatedInviteCode {
                             LabeledContent("Code", value: code)
@@ -117,6 +151,7 @@ struct AuthView: View {
                     }
                 }
 
+                if entitlements.canUseHousehold {
                 Section("Join a household") {
                     TextField("Enter invite code", text: $inviteToJoin)
                         .textInputAutocapitalization(.characters)
@@ -131,6 +166,7 @@ struct AuthView: View {
                         }
                     }
                     .disabled(inviteBusy || inviteToJoin.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
                 }
 
                 if let msg = inviteMessage {
@@ -170,6 +206,9 @@ struct AuthView: View {
                 }
             }
             .navigationTitle("Summit Sync")
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
+            }
             .task {
                 await supabase.loadUser()
                 await household.refresh()

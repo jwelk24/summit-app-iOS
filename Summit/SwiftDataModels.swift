@@ -398,6 +398,53 @@ final class LiabilityModel {
     }
 }
 
+// MARK: - Auto-categorization rules
+
+@Model
+final class CategoryRuleModel {
+    @Attribute(.unique) var id: UUID
+    /// Lower number = applied first.
+    var priority: Int
+    /// Which field to match against: `merchant` or `memo` (see RuleField).
+    var matchField: String
+    /// `contains`, `equals`, `startsWith`, `endsWith` (see RuleMatchKind).
+    var matchKind: String
+    var pattern: String
+    var caseSensitive: Bool
+    var enabled: Bool
+    var createdAt: Date
+    var lastAppliedAt: Date?
+    var timesApplied: Int
+
+    var category: CategoryModel?
+
+    init(
+        id: UUID = UUID(),
+        priority: Int = 100,
+        matchField: String = "merchant",
+        matchKind: String = "contains",
+        pattern: String,
+        caseSensitive: Bool = false,
+        enabled: Bool = true,
+        createdAt: Date = .now,
+        lastAppliedAt: Date? = nil,
+        timesApplied: Int = 0,
+        category: CategoryModel? = nil
+    ) {
+        self.id = id
+        self.priority = priority
+        self.matchField = matchField
+        self.matchKind = matchKind
+        self.pattern = pattern
+        self.caseSensitive = caseSensitive
+        self.enabled = enabled
+        self.createdAt = createdAt
+        self.lastAppliedAt = lastAppliedAt
+        self.timesApplied = timesApplied
+        self.category = category
+    }
+}
+
 @Model
 final class SoftDeleteTombstone {
     @Attribute(.unique) var id: UUID

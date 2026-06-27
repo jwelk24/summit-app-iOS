@@ -18,6 +18,8 @@ struct BudgetView: View {
     @State private var showingManageCategories = false
     @State private var showingRename = false
     @State private var showingSync = false
+    @State private var showingRules = false
+    @State private var showingAlerts = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -171,22 +173,34 @@ struct BudgetView: View {
                 }
                 .padding(.horizontal)
 
-                List {
-                    ForEach(groups.sorted(by: { $0.sort < $1.sort })) { group in
-                        Section(group.name) {
-                            ForEach(categories.filter { $0.group?.id == group.id }.sorted(by: { $0.sort < $1.sort })) { cat in
-                                CategoryRow(
-                                    category: cat,
-                                    budgetMonth: budgetMonth,
-                                    year: engine.selectedYear,
-                                    month: engine.selectedMonth
-                                )
+                Group {
+                    if groups.isEmpty || categories.isEmpty {
+                        BudgetEmptyState(onManageCategories: { showingManageCategories = true })
+                    } else {
+                        List {
+                            ForEach(groups.sorted(by: { $0.sort < $1.sort })) { group in
+                                Section(group.name) {
+                                    ForEach(categories.filter { $0.group?.id == group.id }.sorted(by: { $0.sort < $1.sort })) { cat in
+                                        CategoryRow(
+                                            category: cat,
+                                            budgetMonth: budgetMonth,
+                                            year: engine.selectedYear,
+                                            month: engine.selectedMonth
+                                        )
+                                    }
+                                }
+                                .summitRowBackground()
                             }
                         }
-                        .summitRowBackground()
+                        .listRowSpacing(4)
+                        .summitListBackground()
+                        .animation(.smooth(duration: 0.28), value: groups.map(\.id))
+                        .animation(.smooth(duration: 0.28), value: categories.map(\.id))
+                        .refreshable {
+                            await refreshBudgetData()
+                        }
                     }
                 }
-                .summitListBackground()
             }
             .navigationTitle(budgetTitle)
             .toolbar {
@@ -223,6 +237,20 @@ struct BudgetView: View {
                         }
 
                         Button {
+                            showingRules = true
+                        } label: {
+                            Label("Auto-Categorization", systemImage: "wand.and.stars")
+                        }
+                        .accessibilityIdentifier("autoCategorizationButton")
+
+                        Button {
+                            showingAlerts = true
+                        } label: {
+                            Label("Smart Alerts", systemImage: "bell.badge")
+                        }
+                        .accessibilityIdentifier("smartAlertsButton")
+
+                        Button {
                             showingRename = true
                         } label: {
                             Label("Customize Tabs", systemImage: "rectangle.3.group")
@@ -255,11 +283,67 @@ struct BudgetView: View {
             .sheet(isPresented: $showingRename) {
                 CustomizeTabsView()
             }
+            .sheet(isPresented: $showingRules) {
+                CategoryRulesView()
+            }
+            .sheet(isPresented: $showingAlerts) {
+                SmartAlertsView()
+            }
             .sheet(isPresented: $showingSync) {
                 NavigationStack { AuthView() }
             }
             .accessibilityIdentifier("budgetScreen")
         }
+    }
+
+    private func refreshBudgetData() async {
+        let items = PlaidKeychain.allItems()
+        let service = PlaidSyncService(context: context)
+        let includeInvestments = Entitlements.shared.canTrackInvestments
+        let includeLiabilities = Entitlements.shared.canTrackLiabilities
+        for item in items {
+            AppSyncStatus.shared.beginPlaidSync()
+            do {
+                _ = try await service.syncAll(
+                    for: item,
+                    includeInvestments: includeInvestments,
+                    includeLiabilities: includeLiabilities
+                )
+                AppSyncStatus.shared.endPlaidSync()
+            } catch {
+                AppSyncStatus.shared.endPlaidSync(error: error)
+            }
+        }
+        if SupabaseService.shared.isAuthenticated {
+            await SyncService.shared.syncAccounts(context: context)
+        }
+        await SmartAlertsService.shared.runChecks(
+            context: context,
+            year: engine.selectedYear,
+            month: engine.selectedMonth
+        )
+    }
+}
+
+private struct BudgetEmptyState: View {
+    var onManageCategories: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Build Your Budget", systemImage: "list.bullet.rectangle.portrait")
+        } description: {
+            Text("Create category groups and categories to start assigning every dollar a job.")
+        } actions: {
+            Button {
+                onManageCategories()
+            } label: {
+                Label("Manage Categories", systemImage: "folder.badge.gearshape")
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("budgetEmptyStateCTA")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .summitListBackground()
     }
 }
 
@@ -789,19 +873,53 @@ struct TransactionsView: View {
     @State private var showingImporter = false
     @State private var importMessage: String?
     @State private var showingReceiptScanner = false
+    @State private var showingConnections = false
+    @State private var entitlements = Entitlements.shared
+    @State private var showingPaywall = false
+
+    private func tapScanReceipt() {
+        if entitlements.canScanReceipts {
+            showingReceiptScanner = true
+        } else {
+            showingPaywall = true
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(transactions) { tx in
-                    Button { editing = tx } label: {
-                        TransactionRow(transaction: tx)
+            Group {
+                if transactions.isEmpty {
+                    TransactionsEmptyState(
+                        canScanReceipts: entitlements.canScanReceipts,
+                        onAddManually: { showingNew = true },
+                        onScanReceipt: { tapScanReceipt() },
+                        onLinkBank: { showingConnections = true }
+                    )
+                } else {
+                    List {
+                        ForEach(transactions) { tx in
+                            Button { editing = tx } label: {
+                                TransactionRow(transaction: tx)
+                            }
+                            .buttonStyle(.plain)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteTransaction(tx)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                .tint(.red)
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .listRowSpacing(4)
+                    .summitListBackground()
+                    .animation(.smooth(duration: 0.28), value: transactions.map(\.id))
+                    .refreshable {
+                        await refreshTransactions()
+                    }
                 }
-                .onDelete(perform: delete)
             }
-            .summitListBackground()
             .navigationTitle(transactionsTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -814,9 +932,10 @@ struct TransactionsView: View {
                         .accessibilityIdentifier("addTransactionButton")
 
                         Button {
-                            showingReceiptScanner = true
+                            tapScanReceipt()
                         } label: {
-                            Label("Scan Receipt…", systemImage: "doc.text.viewfinder")
+                            Label(entitlements.canScanReceipts ? "Scan Receipt…" : "Scan Receipt (Premium)…",
+                                  systemImage: entitlements.canScanReceipts ? "doc.text.viewfinder" : "lock.fill")
                         }
                         .accessibilityIdentifier("scanReceiptButton")
 
@@ -838,7 +957,28 @@ struct TransactionsView: View {
                 TransactionEditor(editing: tx)
             }
             .sheet(isPresented: $showingReceiptScanner) {
-                ReceiptScannerView()
+                if entitlements.canScanReceipts {
+                    ReceiptScannerView()
+                } else {
+                    LockedFeatureCard(feature: .receiptScanning) {
+                        showingReceiptScanner = false
+                        showingPaywall = true
+                    }
+                    .presentationDetents([.medium])
+                }
+            }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
+            }
+            .sheet(isPresented: $showingConnections) {
+                NavigationStack {
+                    PlaidConnectionsView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showingConnections = false }
+                            }
+                        }
+                }
             }
             .fileImporter(
                 isPresented: $showingImporter,
@@ -858,11 +998,38 @@ struct TransactionsView: View {
         }
     }
 
-    private func delete(at offsets: IndexSet) {
-        for index in offsets {
-            SoftDelete.markTransactionDeleted(transactions[index], context: context)
-        }
+    private func deleteTransaction(_ tx: TransactionModel) {
+        SoftDelete.markTransactionDeleted(tx, context: context)
         try? context.save()
+    }
+
+    private func refreshTransactions() async {
+        let items = PlaidKeychain.allItems()
+        let service = PlaidSyncService(context: context)
+        let includeInvestments = Entitlements.shared.canTrackInvestments
+        let includeLiabilities = Entitlements.shared.canTrackLiabilities
+        for item in items {
+            AppSyncStatus.shared.beginPlaidSync()
+            do {
+                _ = try await service.syncAll(
+                    for: item,
+                    includeInvestments: includeInvestments,
+                    includeLiabilities: includeLiabilities
+                )
+                AppSyncStatus.shared.endPlaidSync()
+            } catch {
+                AppSyncStatus.shared.endPlaidSync(error: error)
+            }
+        }
+        if SupabaseService.shared.isAuthenticated {
+            await SyncService.shared.syncAccounts(context: context)
+        }
+        let now = Calendar.current.dateComponents([.year, .month], from: .now)
+        await SmartAlertsService.shared.runChecks(
+            context: context,
+            year: now.year ?? 2026,
+            month: now.month ?? 1
+        )
     }
 
     private func handleImport(result: Result<[URL], Error>) {
@@ -900,13 +1067,13 @@ private struct TransactionRow: View {
     let transaction: TransactionModel
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             if let color = flagColor(transaction.flagColor) {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(color)
-                    .frame(width: 3, height: 28)
+                    .frame(width: 3, height: 32)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(transaction.merchant)
                 HStack(spacing: 6) {
                     Text(transaction.date, style: .date)
@@ -928,7 +1095,55 @@ private struct TransactionRow: View {
             Text(currency(transaction.amount))
                 .foregroundStyle(transaction.amount < 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.green))
         }
+        .padding(.vertical, 2)
         .contentShape(Rectangle())
+    }
+}
+
+private struct TransactionsEmptyState: View {
+    var canScanReceipts: Bool
+    var onAddManually: () -> Void
+    var onScanReceipt: () -> Void
+    var onLinkBank: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("No Transactions Yet", systemImage: "tray")
+        } description: {
+            Text("Link a bank to pull in transactions automatically, or add them by hand.")
+        } actions: {
+            VStack(spacing: 10) {
+                Button {
+                    onLinkBank()
+                } label: {
+                    Label("Link a Bank", systemImage: "building.columns")
+                        .frame(maxWidth: 220)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("transactionsEmptyLinkBank")
+
+                Button {
+                    onAddManually()
+                } label: {
+                    Label("Add Manually", systemImage: "plus.circle")
+                        .frame(maxWidth: 220)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("transactionsEmptyAddManually")
+
+                Button {
+                    onScanReceipt()
+                } label: {
+                    Label(canScanReceipts ? "Scan a Receipt" : "Scan a Receipt (Premium)",
+                          systemImage: canScanReceipts ? "doc.text.viewfinder" : "lock.fill")
+                        .frame(maxWidth: 220)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("transactionsEmptyScanReceipt")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .summitListBackground()
     }
 }
 
@@ -961,6 +1176,7 @@ private struct TransactionEditor: View {
     @State private var flagColorName: String? = nil
     @State private var didLoad: Bool = false
     @State private var splits: [SplitDraft] = []
+    @State private var showingNewRule: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -1072,6 +1288,20 @@ private struct TransactionEditor: View {
                     Text(splits.isEmpty ? "Optional" : "Splits")
                 }
                 .summitRowBackground()
+
+                if editing != nil, categoryID != nil, !merchant.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Section {
+                        Button {
+                            showingNewRule = true
+                        } label: {
+                            Label("Create rule from this merchant…", systemImage: "wand.and.stars")
+                        }
+                        .accessibilityIdentifier("createRuleFromTransactionButton")
+                    } footer: {
+                        Text("Future charges from \"\(merchant)\" will be auto-categorized.")
+                    }
+                    .summitRowBackground()
+                }
             }
             .navigationTitle(editing == nil ? "New Transaction" : "Edit Transaction")
             .toolbar {
@@ -1081,6 +1311,11 @@ private struct TransactionEditor: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(editing == nil ? "Add" : "Save") { save() }
                         .disabled(!canSave)
+                }
+            }
+            .sheet(isPresented: $showingNewRule) {
+                if let tx = editing {
+                    CategoryRulesView(seedTransaction: tx)
                 }
             }
             .onAppear(perform: loadIfNeeded)
@@ -1223,6 +1458,8 @@ struct NetWorthView: View {
     @Environment(\.modelContext) private var context
     @Query private var accounts: [AccountModel]
     @Query private var transactions: [TransactionModel]
+    @Query(sort: \InvestmentHoldingModel.institutionValue, order: .reverse) private var holdings: [InvestmentHoldingModel]
+    @Query private var liabilities: [LiabilityModel]
 
     @AppStorage("netWorthTitle") private var netWorthTitle: String = "Net Worth"
 
@@ -1242,6 +1479,9 @@ struct NetWorthView: View {
     @State private var syncingItemId: String?
     @State private var plaidStatus: String?
     @State private var plaidStatusIsError = false
+
+    @State private var entitlements = Entitlements.shared
+    @State private var showingPaywall = false
 
     private struct PendingMergeContext: Identifiable {
         let id = UUID()
@@ -1469,6 +1709,9 @@ struct NetWorthView: View {
                     .summitRowBackground()
                 }
 
+                investmentsSection
+                liabilityDetailsSection
+
                 if accounts.isEmpty {
                     Section {
                         Text("Add your first account using the + button.")
@@ -1482,12 +1725,21 @@ struct NetWorthView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button {
-                            Task { await startPlaidLink() }
-                        } label: {
-                            Label(creatingPlaidLink ? "Preparing…" : "Link with Plaid…", systemImage: "link.badge.plus")
+                        if linkedPlaidItems.count >= entitlements.maxPlaidItems {
+                            Button {
+                                showingPaywall = true
+                            } label: {
+                                Label("Upgrade to Link More Banks", systemImage: "lock.fill")
+                            }
+                            .accessibilityIdentifier("netWorthPlaidUpgradeButton")
+                        } else {
+                            Button {
+                                Task { await startPlaidLink() }
+                            } label: {
+                                Label(creatingPlaidLink ? "Preparing…" : "Link with Plaid…", systemImage: "link.badge.plus")
+                            }
+                            .disabled(creatingPlaidLink)
                         }
-                        .disabled(creatingPlaidLink)
 
                         Button { showingNew = true } label: {
                             Label("Add Manually…", systemImage: "square.and.pencil")
@@ -1536,6 +1788,9 @@ struct NetWorthView: View {
                 Button("OK") { plaidStatus = nil }
             } message: {
                 Text(plaidStatus ?? "")
+            }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
             }
         }
     }
@@ -1601,14 +1856,27 @@ struct NetWorthView: View {
     private func syncPlaidItem(_ item: PlaidKeychain.StoredItem) async {
         syncingItemId = item.itemId
         defer { syncingItemId = nil }
+        AppSyncStatus.shared.beginPlaidSync()
         do {
             let service = PlaidSyncService(context: context)
-            let result = try await service.syncAll(for: item)
+            let result = try await service.syncAll(
+                for: item,
+                includeInvestments: entitlements.canTrackInvestments,
+                includeLiabilities: entitlements.canTrackLiabilities
+            )
             plaidStatus = "Synced \(result.accounts) acct · tx +\(result.transactionsAdded) ~\(result.transactionsModified) · holdings \(result.holdings) · inv-tx \(result.investmentTransactions) · liab \(result.liabilities)"
             plaidStatusIsError = false
             linkedPlaidItems = PlaidKeychain.allItems()
+            AppSyncStatus.shared.endPlaidSync()
+            let now = Calendar.current.dateComponents([.year, .month], from: .now)
+            await SmartAlertsService.shared.runChecks(
+                context: context,
+                year: now.year ?? 2026,
+                month: now.month ?? 1
+            )
         } catch {
             showPlaidError("Sync failed: \(error.localizedDescription)")
+            AppSyncStatus.shared.endPlaidSync(error: error)
         }
     }
 
@@ -1638,6 +1906,209 @@ struct NetWorthView: View {
         }
         .contentShape(Rectangle())
     }
+
+    // MARK: - Investments
+
+    private var holdingsByAccount: [(AccountModel, [InvestmentHoldingModel])] {
+        let grouped = Dictionary(grouping: holdings) { $0.account?.id ?? UUID() }
+        return accounts
+            .filter { $0.type == .investment || $0.type == .retirement }
+            .compactMap { acc in
+                let rows = grouped[acc.id] ?? []
+                return rows.isEmpty ? nil : (acc, rows.sorted { $0.institutionValue > $1.institutionValue })
+            }
+    }
+
+    private var totalHoldingsValue: Decimal {
+        holdings.reduce(.zero) { $0 + $1.institutionValue }
+    }
+
+    @ViewBuilder
+    private var investmentsSection: some View {
+        if entitlements.canTrackInvestments {
+            if !holdingsByAccount.isEmpty {
+                Section {
+                    ForEach(holdingsByAccount, id: \.0.id) { account, accountHoldings in
+                        DisclosureGroup {
+                            ForEach(accountHoldings) { holding in
+                                HoldingRow(holding: holding)
+                            }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(account.name)
+                                    Text("\(accountHoldings.count) holding\(accountHoldings.count == 1 ? "" : "s")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(currency(accountHoldings.reduce(.zero) { $0 + $1.institutionValue }))
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Investments")
+                        Spacer()
+                        Text(currency(totalHoldingsValue))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                .summitRowBackground()
+            }
+        } else if accounts.contains(where: { $0.type == .investment || $0.type == .retirement }) {
+            Section("Investments") {
+                LockedFeatureCard(feature: .investments) {
+                    showingPaywall = true
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+        }
+    }
+
+    // MARK: - Liability details
+
+    private struct LiabilityRowData: Identifiable {
+        let id: UUID
+        let account: AccountModel?
+        let liability: LiabilityModel
+    }
+
+    private var liabilityRows: [LiabilityRowData] {
+        liabilities
+            .map { LiabilityRowData(id: $0.id, account: $0.account, liability: $0) }
+            .sorted { ($0.account?.name ?? "") < ($1.account?.name ?? "") }
+    }
+
+    @ViewBuilder
+    private var liabilityDetailsSection: some View {
+        if entitlements.canTrackLiabilities {
+            if !liabilityRows.isEmpty {
+                Section("Liability Details") {
+                    ForEach(liabilityRows) { row in
+                        LiabilityRow(account: row.account, liability: row.liability)
+                    }
+                }
+                .summitRowBackground()
+            }
+        } else if accounts.contains(where: { $0.type == .creditCard || $0.type == .loan }) {
+            Section("Liability Details") {
+                LockedFeatureCard(feature: .liabilities) {
+                    showingPaywall = true
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+        }
+    }
+}
+
+private struct HoldingRow: View {
+    let holding: InvestmentHoldingModel
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    if let ticker = holding.tickerSymbol, !ticker.isEmpty {
+                        Text(ticker)
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    if let name = holding.securityName, !name.isEmpty {
+                        Text(name)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                HStack(spacing: 6) {
+                    Text("\(NSDecimalNumber(decimal: holding.quantity).stringValue) shares")
+                    Text("·")
+                    Text("@ \(currency(holding.institutionPrice))")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(currency(holding.institutionValue))
+                .monospacedDigit()
+        }
+    }
+}
+
+private struct LiabilityRow: View {
+    let account: AccountModel?
+    let liability: LiabilityModel
+
+    private var titleText: String {
+        account?.name ?? liability.loanName ?? liability.kind.rawValue.capitalized
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(titleText)
+                    Text(liability.kind.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let bal = liability.lastStatementBalance ?? account?.balance.magnitude {
+                    Text(currency(bal))
+                        .monospacedDigit()
+                }
+            }
+
+            HStack(spacing: 16) {
+                if let apr = liability.interestRatePercentage {
+                    LiabilityStat(label: "APR", value: String(format: "%.2f%%", NSDecimalNumber(decimal: apr).doubleValue))
+                }
+                if let min = liability.minimumPayment {
+                    LiabilityStat(label: "Min", value: currency(min))
+                }
+                if let due = liability.nextPaymentDueDate {
+                    LiabilityStat(label: "Due", value: due.formatted(date: .abbreviated, time: .omitted))
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct LiabilityStat: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .foregroundStyle(.primary)
+        }
+    }
+}
+
+private extension LiabilityKind {
+    var displayName: String {
+        switch self {
+        case .credit: return "Credit Card"
+        case .student: return "Student Loan"
+        case .mortgage: return "Mortgage"
+        case .other: return "Other Liability"
+        }
+    }
+}
+
+private extension Decimal {
+    var magnitude: Decimal { self < 0 ? -self : self }
 }
 
 // MARK: - TimelineView
@@ -1663,6 +2134,21 @@ struct HorizonView: View {
 
     @State private var showingNewScheduled = false
     @State private var editingScheduled: ScheduledItemModel?
+    @State private var showingSubscriptions = false
+    @State private var entitlements = Entitlements.shared
+    @State private var showingPaywall = false
+
+    private var horizonDayCap: Int {
+        min(90, entitlements.maxHorizonDays)
+    }
+
+    private var horizonRangeLabel: String {
+        "\(horizonDayCap)-Day"
+    }
+
+    private var canSeeMoreDays: Bool {
+        entitlements.maxHorizonDays > 90
+    }
 
     var body: some View {
         NavigationStack {
@@ -1686,11 +2172,20 @@ struct HorizonView: View {
                     }
                     if let last = points.last {
                         HStack {
-                            Text("90-Day Projected").foregroundStyle(.secondary)
+                            Text("\(horizonRangeLabel) Projected").foregroundStyle(.secondary)
                             Spacer()
                             Text(currency(last.runningBalance))
                                 .bold()
                         }
+                    }
+                    if !canSeeMoreDays {
+                        Button {
+                            showingPaywall = true
+                        } label: {
+                            Label("Forecast up to a year — upgrade", systemImage: "infinity")
+                                .font(.caption)
+                        }
+                        .accessibilityIdentifier("horizonUpgradeButton")
                     }
                 }
                 .summitRowBackground()
@@ -1725,9 +2220,9 @@ struct HorizonView: View {
                     .summitRowBackground()
                 }
 
-                Section("Next 90 Days") {
+                Section("Next \(horizonDayCap) Days") {
                     if points.isEmpty {
-                        Text("No scheduled income or bills in the next 90 days. Tap + to add one.")
+                        Text("No scheduled income or bills in the next \(horizonDayCap) days. Tap + to add one.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(points) { point in
@@ -1771,6 +2266,12 @@ struct HorizonView: View {
                     } label: {
                         Label("Forecast", systemImage: "chart.xyaxis.line")
                     }
+                    Button {
+                        showingSubscriptions = true
+                    } label: {
+                        Label("Subscriptions", systemImage: "repeat.circle")
+                    }
+                    .accessibilityIdentifier("subscriptionsButton")
                     Button { showingNewScheduled = true } label: {
                         Label("Add Scheduled", systemImage: "plus")
                     }
@@ -1779,6 +2280,10 @@ struct HorizonView: View {
             }
             .sheet(isPresented: $showingNewScheduled) { ScheduledEditor(editing: nil) }
             .sheet(item: $editingScheduled) { item in ScheduledEditor(editing: item) }
+            .sheet(isPresented: $showingSubscriptions) { SubscriptionsView() }
+            .sheet(isPresented: $showingPaywall) {
+                PaywallView()
+            }
         }
     }
 
@@ -1796,7 +2301,7 @@ struct HorizonView: View {
     private func projection() -> [ProjectionPoint] {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
-        guard let horizon = cal.date(byAdding: .day, value: 90, to: today) else { return [] }
+        guard let horizon = cal.date(byAdding: .day, value: horizonDayCap, to: today) else { return [] }
 
         struct Event { let date: Date; let item: ScheduledItemModel }
         var events: [Event] = []
@@ -3272,27 +3777,26 @@ struct ReportsView: View {
 
     @AppStorage("reportsTitle") private var reportsTitle: String = "Reports"
 
+    @State private var entitlements = Entitlements.shared
+    @State private var range: ReportRange = .thisMonth
+    @State private var customStart: Date = Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now
+    @State private var customEnd: Date = .now
+    @State private var showingPaywall = false
+    @State private var exportedURL: URL?
+    @State private var exportError: String?
+
+    private var period: ReportPeriod {
+        ReportPeriod.resolve(range, customStart: customStart, customEnd: customEnd)
+    }
+
+    private var summary: ReportSummary {
+        ReportBuilder.build(transactions: transactions, period: period)
+    }
+
     private var spendingByCategory: [CategorySpending] {
-        let cal = Calendar.current
-        let year = engine.selectedYear
-        let month = engine.selectedMonth
-        var totals: [String: Decimal] = [:]
-        for tx in transactions where tx.amount < 0
-            && cal.component(.year, from: tx.date) == year
-            && cal.component(.month, from: tx.date) == month {
-            if tx.splits.isEmpty {
-                let name = tx.category?.name ?? "Uncategorized"
-                totals[name, default: 0] += abs(tx.amount)
-            } else {
-                for split in tx.splits {
-                    let name = split.category?.name ?? "Uncategorized"
-                    totals[name, default: 0] += abs(split.amount)
-                }
-            }
+        summary.byCategory.map {
+            CategorySpending(categoryName: $0.name, amount: NSDecimalNumber(decimal: $0.amount).doubleValue)
         }
-        return totals
-            .map { CategorySpending(categoryName: $0.key, amount: NSDecimalNumber(decimal: $0.value).doubleValue) }
-            .sorted { $0.amount > $1.amount }
     }
 
     private var sixMonthFlow: [MonthlyFlow] {
@@ -3322,10 +3826,42 @@ struct ReportsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Spending This Month") {
+                Section {
+                    ReportRangePicker(
+                        range: $range,
+                        customStart: $customStart,
+                        customEnd: $customEnd,
+                        maxHistoryMonths: entitlements.maxHistoryMonths
+                    )
+                    HStack {
+                        Text("Period")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(period.label)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Range")
+                } footer: {
+                    if entitlements.maxHistoryMonths < 24 {
+                        Button {
+                            showingPaywall = true
+                        } label: {
+                            Label("Unlock unlimited history & custom ranges — upgrade",
+                                  systemImage: "infinity")
+                                .font(.caption)
+                        }
+                    }
+                }
+                .summitRowBackground()
+
+                summarySection
+
+                Section("Spending in Range") {
                     let data = spendingByCategory
                     if data.isEmpty {
-                        Text("No spending recorded this month yet.")
+                        Text("No spending recorded in this range.")
                             .foregroundStyle(.secondary)
                     } else {
                         Chart(data) { item in
@@ -3394,9 +3930,133 @@ struct ReportsView: View {
             }
             .summitListBackground()
             .navigationTitle(reportsTitle)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        if entitlements.canExportReports {
+                            Button {
+                                exportCSV()
+                            } label: {
+                                Label("Export CSV…", systemImage: "tablecells")
+                            }
+                            .accessibilityIdentifier("exportCSVButton")
+                            #if canImport(UIKit)
+                            Button {
+                                exportPDF()
+                            } label: {
+                                Label("Export PDF…", systemImage: "doc.richtext")
+                            }
+                            .accessibilityIdentifier("exportPDFButton")
+                            #endif
+                        } else {
+                            Button {
+                                showingPaywall = true
+                            } label: {
+                                Label("Export (Premium)…", systemImage: "lock.fill")
+                            }
+                            .accessibilityIdentifier("exportUpgradeButton")
+                        }
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
+                    .accessibilityIdentifier("reportsExportMenu")
+                }
+            }
+            .sheet(isPresented: $showingPaywall) { PaywallView() }
+            .sheet(item: Binding(
+                get: { exportedURL.map { ExportedDoc(url: $0) } },
+                set: { exportedURL = $0?.url }
+            )) { doc in
+                ShareSheet(url: doc.url)
+            }
+            .alert("Export failed", isPresented: Binding(
+                get: { exportError != nil },
+                set: { if !$0 { exportError = nil } }
+            )) {
+                Button("OK") { exportError = nil }
+            } message: {
+                Text(exportError ?? "")
+            }
         }
     }
+
+    @ViewBuilder
+    private var summarySection: some View {
+        let s = summary
+        Section("Summary") {
+            HStack {
+                Text("Income").foregroundStyle(.secondary)
+                Spacer()
+                Text(currency(s.totalIncome))
+                    .foregroundStyle(Color.green)
+            }
+            HStack {
+                Text("Spending").foregroundStyle(.secondary)
+                Spacer()
+                Text(currency(s.totalSpending))
+                    .foregroundStyle(Color.red)
+            }
+            HStack {
+                Text("Net").font(.headline)
+                Spacer()
+                Text(currency(s.net))
+                    .font(.headline)
+                    .foregroundStyle(s.net >= 0 ? Color.green : Color.red)
+            }
+            HStack {
+                Text("Transactions").foregroundStyle(.secondary)
+                Spacer()
+                Text("\(s.transactionCount)")
+            }
+        }
+        .summitRowBackground()
+    }
+
+    // MARK: - Export
+
+    private func exportCSV() {
+        if let url = CSVExporter.writeTransactions(transactions, period: period) {
+            exportedURL = url
+        } else {
+            exportError = "Could not write CSV file."
+        }
+    }
+
+    #if canImport(UIKit)
+    private func exportPDF() {
+        let accountsLine = ""
+        if let url = PDFExporter.writeReport(summary, accountsLine: accountsLine) {
+            exportedURL = url
+        } else {
+            exportError = "Could not write PDF file."
+        }
+    }
+    #endif
 }
+
+private struct ExportedDoc: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+#if canImport(UIKit)
+private struct ShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+#else
+private struct ShareSheet: View {
+    let url: URL
+    var body: some View {
+        Text("Saved to: \(url.path)")
+    }
+}
+#endif
 
 // MARK: - Flag colors
 

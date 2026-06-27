@@ -128,10 +128,12 @@ struct CashFlowForecastView: View {
     @Query private var accounts: [AccountModel]
     @Query private var scheduled: [ScheduledItemModel]
 
-    @State private var horizonDays: Int = 90
+    @State private var horizonDays: Int = 30
     @State private var excluded: Set<UUID> = []
     @State private var extraEvents: [CashFlowForecaster.Event] = []
     @State private var showingAddExtra = false
+    @State private var entitlements = Entitlements.shared
+    @State private var showingPaywall = false
 
     var body: some View {
         let forecaster = CashFlowForecaster(
@@ -170,6 +172,9 @@ struct CashFlowForecastView: View {
         }
         .sheet(isPresented: $showingAddExtra) {
             WhatIfEditor { event in extraEvents.append(event) }
+        }
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView()
         }
     }
 
@@ -275,11 +280,35 @@ struct CashFlowForecastView: View {
         Section("Horizon") {
             Picker("Window", selection: $horizonDays) {
                 Text("30 days").tag(30)
-                Text("60 days").tag(60)
-                Text("90 days").tag(90)
-                Text("180 days").tag(180)
+                if entitlements.maxHorizonDays >= 60 {
+                    Text("60 days").tag(60)
+                }
+                if entitlements.maxHorizonDays >= 90 {
+                    Text("90 days").tag(90)
+                }
+                if entitlements.maxHorizonDays >= 180 {
+                    Text("180 days").tag(180)
+                }
+                if entitlements.maxHorizonDays >= 365 {
+                    Text("1 year").tag(365)
+                }
             }
             .pickerStyle(.segmented)
+
+            if entitlements.maxHorizonDays < 365 {
+                Button {
+                    showingPaywall = true
+                } label: {
+                    Label("Forecast up to a year — upgrade", systemImage: "infinity")
+                        .font(.caption)
+                }
+                .accessibilityIdentifier("forecastUpgradeButton")
+            }
+        }
+        .onAppear {
+            if horizonDays > entitlements.maxHorizonDays {
+                horizonDays = min(30, entitlements.maxHorizonDays)
+            }
         }
     }
 

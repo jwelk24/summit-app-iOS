@@ -1,0 +1,79 @@
+{
+  "identifier" : "9F8D8C81-37B3-4F71-B6E8-2A7E8C2A5101",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_billingIssuesEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_disableDialog" : false,
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_renewalRate" : 1,
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "5F4D8B22-9C7E-4E1A-AA15-7B16F4D2D101",
+      "localizations" : [],
+      "name" : "Summit Subscriptions",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "B1C5F12A-3A1E-4F4C-9D0F-1C5E91A4B201",
+          "introductoryOffer" : {
+            "internalID" : "C2D6E13B-4B2F-5A5D-AE1F-2D6FA2B5C301",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Connect bank accounts, sync across devices, and plan 30 days ahead.",
+              "displayName" : "Summit Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.welker.Summit.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Summit Pro Monthly",
+          "subscriptionGroupID" : "5F4D8B22-9C7E-4E1A-AA15-7B16F4D2D101",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "D3E7F14C-5C3F-6B6E-BF20-3E70B3C6D401",
+          "introductoryOffer" : {
+            "internalID" : "E4F8A25D-6D40-7C7F-C031-4F81C4D7E501",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Everything in Pro, plus family sharing, AI insights, investments, receipt scanning, and unlimited horizon.",
+              "displayName" : "Summit Premium",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.welker.Summit.premium.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Summit Premium Monthly",
+          "subscriptionGroupID" : "5F4D8B22-9C7E-4E1A-AA15-7B16F4D2D101",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

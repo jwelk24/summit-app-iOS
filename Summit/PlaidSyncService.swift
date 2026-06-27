@@ -238,7 +238,11 @@ struct PlaidSyncService {
     }
 
     @discardableResult
-    func syncAll(for item: PlaidKeychain.StoredItem) async throws -> FullSyncResult {
+    func syncAll(
+        for item: PlaidKeychain.StoredItem,
+        includeInvestments: Bool = true,
+        includeLiabilities: Bool = true
+    ) async throws -> FullSyncResult {
         var result = FullSyncResult()
         let accounts = try await syncAccounts(for: item)
         result.accounts = accounts.count
@@ -248,9 +252,13 @@ struct PlaidSyncService {
         result.transactionsModified = txCounts.modified
         result.transactionsRemoved = txCounts.removed
 
-        result.holdings = try await syncHoldings(for: item)
-        result.investmentTransactions = try await syncInvestmentTransactions(for: item)
-        result.liabilities = try await syncLiabilities(for: item)
+        if includeInvestments {
+            result.holdings = try await syncHoldings(for: item)
+            result.investmentTransactions = try await syncInvestmentTransactions(for: item)
+        }
+        if includeLiabilities {
+            result.liabilities = try await syncLiabilities(for: item)
+        }
         return result
     }
 
@@ -323,6 +331,7 @@ struct PlaidSyncService {
             account: account
         )
         context.insert(model)
+        RuleEngine.categorizeIfPossible(model, context: context)
 
         let link = PlaidTransactionLinkModel(
             plaidTransactionId: tx.transaction_id,

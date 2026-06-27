@@ -22,6 +22,7 @@ enum SummitSharedStore {
             InvestmentHoldingModel.self,
             InvestmentTransactionModel.self,
             LiabilityModel.self,
+            CategoryRuleModel.self,
             SoftDeleteTombstone.self,
         ])
     }
@@ -53,6 +54,11 @@ struct SummitApp: App {
             RootView()
                 .environment(engine)
                 .task {
+                    // Kick off the StoreKit transaction listener and pull the
+                    // current entitlement before anything else, so gates
+                    // resolve correctly on first render.
+                    await MainActor.run { StoreKitService.shared.start() }
+
                     // If there's a persisted Supabase session, pull cloud data BEFORE seeding,
                     // so the seed only runs when there's genuinely no data anywhere.
                     await SupabaseService.shared.loadUser()
