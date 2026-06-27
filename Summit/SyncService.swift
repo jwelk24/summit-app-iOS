@@ -333,74 +333,67 @@ final class SyncService {
         defer { isSyncing = false }
         lastError = nil
 
-        do {
-            let canWrite = HouseholdService.shared.currentRole?.canWrite ?? false
-            var pushed = 0
-            var pulled = 0
+        let canWrite = HouseholdService.shared.currentRole?.canWrite ?? false
+        var pushed = 0
+        var pulled = 0
 
-            var perTableErrors: [String] = []
+        var perTableErrors: [String] = []
 
-            func isCancellation(_ error: Error) -> Bool {
-                if error is CancellationError { return true }
-                if let urlError = error as? URLError, urlError.code == .cancelled { return true }
-                return false
-            }
-            func runPush(_ label: String, _ work: () async throws -> Int) async {
-                do { pushed += try await work() }
-                catch { if !isCancellation(error) { perTableErrors.append("push \(label): \(error.localizedDescription)") } }
-            }
-            func runPull(_ label: String, _ work: () async throws -> Int) async {
-                do { pulled += try await work() }
-                catch { if !isCancellation(error) { perTableErrors.append("pull \(label): \(error.localizedDescription)") } }
-            }
-
-            if canWrite {
-                await runPush("accounts") { try await pushAccounts(context: context, householdID: household.id) }
-                await runPush("category_groups") { try await pushCategoryGroups(context: context, householdID: household.id) }
-                await runPush("categories") { try await pushCategories(context: context, householdID: household.id) }
-                await runPush("goals") { try await pushGoals(context: context, householdID: household.id) }
-                // Auto-reconcile fresh-install budget_month seeds against server before pushing.
-                try? await reconcileLocalBudgetMonths(context: context, householdID: household.id)
-                await runPush("budget_months") { try await pushBudgetMonths(context: context, householdID: household.id) }
-                await runPush("budget_allocations") { try await pushBudgetAllocations(context: context, householdID: household.id) }
-                await runPush("scheduled_items") { try await pushScheduledItems(context: context, householdID: household.id) }
-                await runPush("liabilities") { try await pushLiabilities(context: context, householdID: household.id) }
-                await runPush("investment_holdings") { try await pushInvestmentHoldings(context: context, householdID: household.id) }
-                await runPush("investment_transactions") { try await pushInvestmentTransactions(context: context, householdID: household.id) }
-                await runPush("plaid_account_links") { try await pushPlaidAccountLinks(context: context, householdID: household.id) }
-                await runPush("transactions") { try await pushTransactions(context: context, householdID: household.id) }
-                await runPush("plaid_transaction_links") { try await pushPlaidTransactionLinks(context: context, householdID: household.id) }
-                await runPush("transaction_splits") { try await pushTransactionSplits(context: context, householdID: household.id) }
-                await runPush("balance_snapshots") { try await pushBalanceSnapshots(context: context, householdID: household.id) }
-                await runPush("deletions") { try await pushDeletions(context: context, householdID: household.id) }
-            }
-
-            await runPull("accounts") { try await pullAccounts(context: context, householdID: household.id) }
-            await runPull("category_groups") { try await pullCategoryGroups(context: context, householdID: household.id) }
-            await runPull("categories") { try await pullCategories(context: context, householdID: household.id) }
-            await runPull("goals") { try await pullGoals(context: context, householdID: household.id) }
-            await runPull("budget_months") { try await pullBudgetMonths(context: context, householdID: household.id) }
-            await runPull("budget_allocations") { try await pullBudgetAllocations(context: context, householdID: household.id) }
-            await runPull("scheduled_items") { try await pullScheduledItems(context: context, householdID: household.id) }
-            await runPull("liabilities") { try await pullLiabilities(context: context, householdID: household.id) }
-            await runPull("investment_holdings") { try await pullInvestmentHoldings(context: context, householdID: household.id) }
-            await runPull("investment_transactions") { try await pullInvestmentTransactions(context: context, householdID: household.id) }
-            await runPull("plaid_account_links") { try await pullPlaidAccountLinks(context: context, householdID: household.id) }
-            await runPull("transactions") { try await pullTransactions(context: context, householdID: household.id) }
-            await runPull("plaid_transaction_links") { try await pullPlaidTransactionLinks(context: context, householdID: household.id) }
-            await runPull("transaction_splits") { try await pullTransactionSplits(context: context, householdID: household.id) }
-            await runPull("balance_snapshots") { try await pullBalanceSnapshots(context: context, householdID: household.id) }
-
-            lastPushCount = pushed
-            lastPullCount = pulled
-            lastSyncedAt = Date()
-            lastError = perTableErrors.first
-        } catch is CancellationError {
-            // Sync was interrupted (app backgrounded, realtime restart, etc). Silent.
-        } catch {
-            if Task.isCancelled { return }
-            lastError = error.localizedDescription
+        func isCancellation(_ error: Error) -> Bool {
+            if error is CancellationError { return true }
+            if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+            return false
         }
+        func runPush(_ label: String, _ work: () async throws -> Int) async {
+            do { pushed += try await work() }
+            catch { if !isCancellation(error) { perTableErrors.append("push \(label): \(error.localizedDescription)") } }
+        }
+        func runPull(_ label: String, _ work: () async throws -> Int) async {
+            do { pulled += try await work() }
+            catch { if !isCancellation(error) { perTableErrors.append("pull \(label): \(error.localizedDescription)") } }
+        }
+
+        if canWrite {
+            await runPush("accounts") { try await pushAccounts(context: context, householdID: household.id) }
+            await runPush("category_groups") { try await pushCategoryGroups(context: context, householdID: household.id) }
+            await runPush("categories") { try await pushCategories(context: context, householdID: household.id) }
+            await runPush("goals") { try await pushGoals(context: context, householdID: household.id) }
+            // Auto-reconcile fresh-install budget_month seeds against server before pushing.
+            try? await reconcileLocalBudgetMonths(context: context, householdID: household.id)
+            await runPush("budget_months") { try await pushBudgetMonths(context: context, householdID: household.id) }
+            await runPush("budget_allocations") { try await pushBudgetAllocations(context: context, householdID: household.id) }
+            await runPush("scheduled_items") { try await pushScheduledItems(context: context, householdID: household.id) }
+            await runPush("liabilities") { try await pushLiabilities(context: context, householdID: household.id) }
+            await runPush("investment_holdings") { try await pushInvestmentHoldings(context: context, householdID: household.id) }
+            await runPush("investment_transactions") { try await pushInvestmentTransactions(context: context, householdID: household.id) }
+            await runPush("plaid_account_links") { try await pushPlaidAccountLinks(context: context, householdID: household.id) }
+            await runPush("transactions") { try await pushTransactions(context: context, householdID: household.id) }
+            await runPush("plaid_transaction_links") { try await pushPlaidTransactionLinks(context: context, householdID: household.id) }
+            await runPush("transaction_splits") { try await pushTransactionSplits(context: context, householdID: household.id) }
+            await runPush("balance_snapshots") { try await pushBalanceSnapshots(context: context, householdID: household.id) }
+            await runPush("deletions") { try await pushDeletions(context: context, householdID: household.id) }
+        }
+
+        await runPull("accounts") { try await pullAccounts(context: context, householdID: household.id) }
+        await runPull("category_groups") { try await pullCategoryGroups(context: context, householdID: household.id) }
+        await runPull("categories") { try await pullCategories(context: context, householdID: household.id) }
+        await runPull("goals") { try await pullGoals(context: context, householdID: household.id) }
+        await runPull("budget_months") { try await pullBudgetMonths(context: context, householdID: household.id) }
+        await runPull("budget_allocations") { try await pullBudgetAllocations(context: context, householdID: household.id) }
+        await runPull("scheduled_items") { try await pullScheduledItems(context: context, householdID: household.id) }
+        await runPull("liabilities") { try await pullLiabilities(context: context, householdID: household.id) }
+        await runPull("investment_holdings") { try await pullInvestmentHoldings(context: context, householdID: household.id) }
+        await runPull("investment_transactions") { try await pullInvestmentTransactions(context: context, householdID: household.id) }
+        await runPull("plaid_account_links") { try await pullPlaidAccountLinks(context: context, householdID: household.id) }
+        await runPull("transactions") { try await pullTransactions(context: context, householdID: household.id) }
+        await runPull("plaid_transaction_links") { try await pullPlaidTransactionLinks(context: context, householdID: household.id) }
+        await runPull("transaction_splits") { try await pullTransactionSplits(context: context, householdID: household.id) }
+        await runPull("balance_snapshots") { try await pullBalanceSnapshots(context: context, householdID: household.id) }
+
+        lastPushCount = pushed
+        lastPullCount = pulled
+        lastSyncedAt = Date()
+        lastError = perTableErrors.first
     }
 
     // MARK: - Accounts

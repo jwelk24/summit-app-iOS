@@ -69,6 +69,7 @@ struct BudgetRemainingIntent: AppIntent {
 
     static var openAppWhenRun: Bool { false }
 
+    @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let snap = SummitSnapshot.load() else {
             return .result(dialog: "Open Summit once so I can read your latest budget.")
@@ -94,6 +95,7 @@ struct NetWorthIntent: AppIntent {
 
     static var openAppWhenRun: Bool { false }
 
+    @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let snap = SummitSnapshot.load() else {
             return .result(dialog: "Open Summit once so I can read your accounts.")

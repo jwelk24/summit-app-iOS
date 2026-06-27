@@ -41,15 +41,22 @@ final class RealtimeService {
             let stream = channel.postgresChange(AnyAction.self, schema: "public", table: table, filter: filter)
             let task = Task { [weak self] in
                 for await _ in stream {
-                    await self?.handleEvent()
+                    self?.handleEvent()
                 }
             }
             listenerTasks.append(task)
         }
 
-        await channel.subscribe()
-        self.channel = channel
-        isConnected = true
+        do {
+            try await channel.subscribeWithError()
+            self.channel = channel
+            isConnected = true
+        } catch {
+            for task in listenerTasks { task.cancel() }
+            listenerTasks = []
+            currentHouseholdID = nil
+            isConnected = false
+        }
     }
 
     func stop() async {
