@@ -22,9 +22,9 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "4.99",
+          "displayPrice" : "7.99",
           "familyShareable" : false,
-          "groupNumber" : 1,
+          "groupNumber" : 2,
           "internalID" : "B1C5F12A-3A1E-4F4C-9D0F-1C5E91A4B201",
           "introductoryOffer" : {
             "internalID" : "C2D6E13B-4B2F-5A5D-AE1F-2D6FA2B5C301",
@@ -33,8 +33,8 @@
           },
           "localizations" : [
             {
-              "description" : "Connect bank accounts, sync across devices, and plan 30 days ahead.",
-              "displayName" : "Summit Pro",
+              "description" : "Connect up to 5 bank accounts, sync across devices, and plan 30 days ahead.",
+              "displayName" : "Summit Pro Monthly",
               "locale" : "en_US"
             }
           ],
@@ -47,9 +47,34 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "9.99",
+          "displayPrice" : "69.00",
           "familyShareable" : false,
           "groupNumber" : 2,
+          "internalID" : "F5A9B26E-7E51-8D80-D142-5092D5E8F601",
+          "introductoryOffer" : {
+            "internalID" : "06BAC37F-8F62-9E91-E253-61A3E6F90701",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Summit Pro for a full year — save 28% versus monthly.",
+              "displayName" : "Summit Pro Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.welker.Summit.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Summit Pro Yearly",
+          "subscriptionGroupID" : "5F4D8B22-9C7E-4E1A-AA15-7B16F4D2D101",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "12.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
           "internalID" : "D3E7F14C-5C3F-6B6E-BF20-3E70B3C6D401",
           "introductoryOffer" : {
             "internalID" : "E4F8A25D-6D40-7C7F-C031-4F81C4D7E501",
@@ -58,14 +83,39 @@
           },
           "localizations" : [
             {
-              "description" : "Everything in Pro, plus family sharing, AI insights, investments, receipt scanning, and unlimited horizon.",
-              "displayName" : "Summit Premium",
+              "description" : "Everything in Pro, plus family sharing, AI insights, investments, receipt scanning, and up to 20 linked banks.",
+              "displayName" : "Summit Premium Monthly",
               "locale" : "en_US"
             }
           ],
           "productID" : "com.welker.Summit.premium.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Summit Premium Monthly",
+          "subscriptionGroupID" : "5F4D8B22-9C7E-4E1A-AA15-7B16F4D2D101",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "99.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "17CBD480-9073-AFA2-F364-72B4F70A1801",
+          "introductoryOffer" : {
+            "internalID" : "28DCE591-A184-BAB3-0475-83C5081B2901",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Summit Premium for a full year — save 36% versus monthly.",
+              "displayName" : "Summit Premium Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.welker.Summit.premium.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Summit Premium Yearly",
           "subscriptionGroupID" : "5F4D8B22-9C7E-4E1A-AA15-7B16F4D2D101",
           "type" : "RecurringSubscription"
         }

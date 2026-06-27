@@ -10,9 +10,22 @@ import StoreKit
 final class StoreKitService {
     static let shared = StoreKitService()
 
-    static let proProductID = "com.welker.Summit.pro.monthly"
-    static let premiumProductID = "com.welker.Summit.premium.monthly"
-    static let allProductIDs: Set<String> = [proProductID, premiumProductID]
+    static let proMonthlyProductID = "com.welker.Summit.pro.monthly"
+    static let proYearlyProductID = "com.welker.Summit.pro.yearly"
+    static let premiumMonthlyProductID = "com.welker.Summit.premium.monthly"
+    static let premiumYearlyProductID = "com.welker.Summit.premium.yearly"
+
+    static let allProductIDs: Set<String> = [
+        proMonthlyProductID,
+        proYearlyProductID,
+        premiumMonthlyProductID,
+        premiumYearlyProductID,
+    ]
+
+    /// Kept for backward compatibility with any external code that referenced
+    /// the old "monthly is the canonical product" name.
+    static let proProductID = proMonthlyProductID
+    static let premiumProductID = premiumMonthlyProductID
 
     private(set) var availableProducts: [Product] = []
     private(set) var isLoadingProducts: Bool = false
@@ -53,7 +66,21 @@ final class StoreKitService {
     }
 
     func product(for tier: SubscriptionTier) -> Product? {
-        availableProducts.first { SubscriptionTier(productID: $0.id) == tier }
+        product(for: tier, period: .monthly) ?? product(for: tier, period: .yearly)
+    }
+
+    func product(for tier: SubscriptionTier, period: SubscriptionPeriod) -> Product? {
+        let id = Self.productID(for: tier, period: period)
+        return availableProducts.first { $0.id == id }
+    }
+
+    static func productID(for tier: SubscriptionTier, period: SubscriptionPeriod) -> String {
+        switch (tier, period) {
+        case (.pro, .monthly): return proMonthlyProductID
+        case (.pro, .yearly): return proYearlyProductID
+        case (.premium, .monthly): return premiumMonthlyProductID
+        case (.premium, .yearly): return premiumYearlyProductID
+        }
     }
 
     // MARK: Purchase / Restore
@@ -143,9 +170,12 @@ final class StoreKitService {
 extension SubscriptionTier {
     init?(productID: String) {
         switch productID {
-        case StoreKitService.proProductID: self = .pro
-        case StoreKitService.premiumProductID: self = .premium
-        default: return nil
+        case StoreKitService.proMonthlyProductID, StoreKitService.proYearlyProductID:
+            self = .pro
+        case StoreKitService.premiumMonthlyProductID, StoreKitService.premiumYearlyProductID:
+            self = .premium
+        default:
+            return nil
         }
     }
 

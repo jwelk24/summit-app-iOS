@@ -19,6 +19,12 @@ struct PlaidConnectionsView: View {
         items.count >= entitlements.maxPlaidItems
     }
 
+    private var capCopy: String {
+        let cap = entitlements.maxPlaidItems
+        let tier = entitlements.tier.displayName
+        return "\(tier) is limited to \(cap) bank\(cap == 1 ? "" : "s")."
+    }
+
     var body: some View {
         List {
             Section("Linked Items") {
@@ -46,7 +52,7 @@ struct PlaidConnectionsView: View {
                             Image(systemName: "lock.fill")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Upgrade to link more banks")
-                                Text("Pro is limited to \(entitlements.maxPlaidItems) banks.")
+                                Text(capCopy)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

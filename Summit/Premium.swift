@@ -17,8 +17,24 @@ enum SubscriptionTier: String, CaseIterable, Codable, Sendable {
 
     var monthlyPriceLabel: String {
         switch self {
-        case .pro: return "$4.99/mo"
-        case .premium: return "$9.99/mo"
+        case .pro: return "$7.99/mo"
+        case .premium: return "$12.99/mo"
+        }
+    }
+
+    var yearlyPriceLabel: String {
+        switch self {
+        case .pro: return "$69/yr"
+        case .premium: return "$99/yr"
+        }
+    }
+
+    /// Approximate percentage saved on the yearly plan versus 12× monthly.
+    /// Used in the paywall to label the annual option.
+    var yearlySavingsPercent: Int {
+        switch self {
+        case .pro: return 28      // ($7.99 × 12 − $69) / $95.88 ≈ 28%
+        case .premium: return 36  // ($12.99 × 12 − $99) / $155.88 ≈ 36%
         }
     }
 
@@ -26,6 +42,17 @@ enum SubscriptionTier: String, CaseIterable, Codable, Sendable {
         switch self {
         case .pro: return "Connect your accounts and plan ahead."
         case .premium: return "Everything in Pro, plus the full Summit toolkit."
+        }
+    }
+}
+
+enum SubscriptionPeriod {
+    case monthly, yearly
+
+    var displayName: String {
+        switch self {
+        case .monthly: return "Monthly"
+        case .yearly: return "Yearly"
         }
     }
 }
@@ -94,7 +121,7 @@ final class Entitlements {
 
     // MARK: Numeric caps
 
-    var maxPlaidItems: Int { tier == .premium ? .max : 2 }
+    var maxPlaidItems: Int { tier == .premium ? 20 : 5 }
     var maxHorizonDays: Int { tier == .premium ? 365 : 30 }
     var maxHistoryMonths: Int { tier == .premium ? .max : 12 }
 
@@ -171,7 +198,7 @@ enum PremiumFeature: String, CaseIterable {
         case .smartAlerts: return "Smart Alerts"
         case .subscriptionTracker: return "Subscription Tracker"
         case .unlimitedHorizon: return "Unlimited Horizon"
-        case .unlimitedBankLinks: return "Unlimited Bank Links"
+        case .unlimitedBankLinks: return "Up to 20 Bank Links"
         }
     }
 
@@ -187,7 +214,7 @@ enum PremiumFeature: String, CaseIterable {
         case .smartAlerts: return "Get notified about overspending and unusual charges."
         case .subscriptionTracker: return "Surface every recurring charge so nothing slips by."
         case .unlimitedHorizon: return "Forecast cash flow as far as a year out."
-        case .unlimitedBankLinks: return "Connect as many bank, credit, and investment accounts as you need."
+        case .unlimitedBankLinks: return "Connect up to 20 bank, credit, and investment accounts."
         }
     }
 }
@@ -214,8 +241,10 @@ struct PaywallView: View {
     @Bindable private var store = StoreKitService.shared
     @Environment(\.dismiss) private var dismiss
 
-    private var proProduct: Product? { store.product(for: .pro) }
-    private var premiumProduct: Product? { store.product(for: .premium) }
+    private var proMonthlyProduct: Product? { store.product(for: .pro, period: .monthly) }
+    private var proYearlyProduct: Product? { store.product(for: .pro, period: .yearly) }
+    private var premiumMonthlyProduct: Product? { store.product(for: .premium, period: .monthly) }
+    private var premiumYearlyProduct: Product? { store.product(for: .premium, period: .yearly) }
 
     var body: some View {
         NavigationStack {
@@ -242,22 +271,34 @@ struct PaywallView: View {
                 }
 
                 Section {
-                    PaywallFeatureRow(icon: "link.icloud", title: "Bank linking via Plaid")
+                    PaywallFeatureRow(icon: "link.icloud", title: "Bank linking via Plaid (up to 5)")
                     PaywallFeatureRow(icon: "icloud", title: "Cloud sync across devices")
                     PaywallFeatureRow(icon: "calendar", title: "30-day cash-flow forecast")
                     PaywallFeatureRow(icon: "chart.pie", title: "Reports & 12-month history")
                     PaywallTierCTA(
                         tier: .pro,
-                        product: proProduct,
+                        period: .monthly,
+                        product: proMonthlyProduct,
                         isCurrent: entitlements.tier == .pro,
                         isWorking: store.purchaseInProgress
                     ) {
-                        if let proProduct {
-                            Task { await store.purchase(proProduct) }
+                        if let proMonthlyProduct {
+                            Task { await store.purchase(proMonthlyProduct) }
+                        }
+                    }
+                    PaywallTierCTA(
+                        tier: .pro,
+                        period: .yearly,
+                        product: proYearlyProduct,
+                        isCurrent: entitlements.tier == .pro,
+                        isWorking: store.purchaseInProgress
+                    ) {
+                        if let proYearlyProduct {
+                            Task { await store.purchase(proYearlyProduct) }
                         }
                     }
                 } header: {
-                    PaywallTierHeader(tier: .pro, product: proProduct)
+                    PaywallTierHeader(tier: .pro)
                 }
 
                 Section {
@@ -266,16 +307,28 @@ struct PaywallView: View {
                     }
                     PaywallTierCTA(
                         tier: .premium,
-                        product: premiumProduct,
+                        period: .monthly,
+                        product: premiumMonthlyProduct,
                         isCurrent: entitlements.tier == .premium,
                         isWorking: store.purchaseInProgress
                     ) {
-                        if let premiumProduct {
-                            Task { await store.purchase(premiumProduct) }
+                        if let premiumMonthlyProduct {
+                            Task { await store.purchase(premiumMonthlyProduct) }
+                        }
+                    }
+                    PaywallTierCTA(
+                        tier: .premium,
+                        period: .yearly,
+                        product: premiumYearlyProduct,
+                        isCurrent: entitlements.tier == .premium,
+                        isWorking: store.purchaseInProgress
+                    ) {
+                        if let premiumYearlyProduct {
+                            Task { await store.purchase(premiumYearlyProduct) }
                         }
                     }
                 } header: {
-                    PaywallTierHeader(tier: .premium, product: premiumProduct)
+                    PaywallTierHeader(tier: .premium)
                 } footer: {
                     Text("Everything in Pro, plus every advanced feature.")
                 }
@@ -331,38 +384,61 @@ struct PaywallView: View {
 
 private struct PaywallTierHeader: View {
     let tier: SubscriptionTier
-    let product: Product?
 
     var body: some View {
-        HStack {
-            Text("Summit \(tier.displayName)")
-            Spacer()
-            if let product {
-                Text("\(product.displayPrice)/mo")
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(tier.monthlyPriceLabel)
-                    .foregroundStyle(.secondary)
-            }
-        }
+        Text("Summit \(tier.displayName)")
     }
 }
 
 private struct PaywallTierCTA: View {
     let tier: SubscriptionTier
+    let period: SubscriptionPeriod
     let product: Product?
     let isCurrent: Bool
     let isWorking: Bool
     let onSubscribe: () -> Void
 
+    private var fallbackPriceLabel: String {
+        switch period {
+        case .monthly: return tier.monthlyPriceLabel
+        case .yearly: return tier.yearlyPriceLabel
+        }
+    }
+
+    private var priceLabel: String {
+        guard let product else { return fallbackPriceLabel }
+        switch period {
+        case .monthly: return "\(product.displayPrice)/mo"
+        case .yearly: return "\(product.displayPrice)/yr"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(period.displayName)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(priceLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                if period == .yearly {
+                    Text("Save \(tier.yearlySavingsPercent)%")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.green.opacity(0.18), in: Capsule())
+                        .foregroundStyle(.green)
+                }
+            }
+
             if let trial = product?.subscription?.introOfferLabel {
-                Label("\(trial) free, then \(product?.displayPrice ?? tier.monthlyPriceLabel)",
-                      systemImage: "gift")
+                Label("\(trial) free, then \(priceLabel)", systemImage: "gift")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
             Button {
                 onSubscribe()
             } label: {
@@ -376,16 +452,34 @@ private struct PaywallTierCTA: View {
                         Label("Unavailable", systemImage: "exclamationmark.triangle")
                             .frame(maxWidth: .infinity)
                     } else {
-                        Text("Subscribe to \(tier.displayName)")
+                        Text("Subscribe \(period.displayName)")
                             .frame(maxWidth: .infinity)
                     }
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(period == .yearly ? AnyButtonStyle(.borderedProminent) : AnyButtonStyle(.bordered))
             .disabled(isWorking || isCurrent || product == nil)
-            .accessibilityIdentifier("subscribe_\(tier.rawValue)")
+            .accessibilityIdentifier("subscribe_\(tier.rawValue)_\(period == .monthly ? "monthly" : "yearly")")
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Type-eraser so we can pick between `.borderedProminent` and `.bordered`
+/// at runtime without `if` branches that duplicate the entire view tree.
+private struct AnyButtonStyle: PrimitiveButtonStyle {
+    private let body: (Configuration) -> AnyView
+
+    init<S: PrimitiveButtonStyle>(_ style: S) {
+        body = { config in
+            AnyView(Button(role: config.role, action: config.trigger) {
+                config.label
+            }.buttonStyle(style))
+        }
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        body(configuration)
     }
 }
 
