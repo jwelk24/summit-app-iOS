@@ -25,17 +25,23 @@ struct AIInsightsView: View {
         NavigationStack {
             Group {
                 if entitlements.canUseAIInsights {
-                    List {
-                        switch availability {
-                        case .available:
-                            digestSection
-                            smartCategorizeSection
-                            aboutSection
-                        case .unavailable(let reason):
-                            unavailableSection(reason)
+                    VStack(spacing: 12) {
+                        InsightsHeroCard(availability: availability, digestHeadline: digest?.headline)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+
+                        List {
+                            switch availability {
+                            case .available:
+                                digestSection
+                                smartCategorizeSection
+                                aboutSection
+                            case .unavailable(let reason):
+                                unavailableSection(reason)
+                            }
                         }
+                        .summitListBackground()
                     }
-                    .summitListBackground()
                 } else {
                     LockedFeatureCard(feature: .aiInsights) {
                         showingPaywall = true
@@ -45,6 +51,7 @@ struct AIInsightsView: View {
                 }
             }
             .navigationTitle("Insights")
+            .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showingPaywall) {
                 PaywallView()
             }
@@ -97,7 +104,7 @@ struct AIInsightsView: View {
             }
             .disabled(isGeneratingDigest)
         } header: {
-            Text("Weekly Digest")
+            SummitSectionHeader(title: "Weekly Digest", systemImage: "sparkles")
         } footer: {
             Text("Generated on-device. Nothing is sent to a server.")
         }
@@ -138,7 +145,7 @@ struct AIInsightsView: View {
             }
             .disabled(isCategorizing)
         } header: {
-            Text("Smart Categorize")
+            SummitSectionHeader(title: "Smart Categorize", systemImage: "wand.and.stars")
         }
         .summitRowBackground()
     }
@@ -217,6 +224,73 @@ struct AIInsightsView: View {
 
     private var errorBinding: Binding<Bool> {
         Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+    }
+}
+
+private struct InsightsHeroCard: View {
+    let availability: SystemLanguageModel.Availability
+    let digestHeadline: String?
+
+    private var statusText: String {
+        switch availability {
+        case .available: return "Active"
+        case .unavailable: return "Unavailable"
+        }
+    }
+    private var statusTint: Color {
+        switch availability {
+        case .available: return .green
+        case .unavailable: return .orange
+        }
+    }
+    private var statusIcon: String {
+        switch availability {
+        case .available: return "checkmark.seal.fill"
+        case .unavailable: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var body: some View {
+        SummitGlassCard {
+            SummitHeroHeader(
+                systemImage: "sparkles",
+                label: "Apple Intelligence",
+                trailing: AnyView(
+                    SummitChip(text: statusText, systemImage: statusIcon, tint: statusTint)
+                )
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(digestHeadline == nil ? "On-Device Insights" : "Latest Digest")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text(digestHeadline ?? "Private summaries that never leave your device.")
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.accentColor, .accentColor.opacity(0.7)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.7)
+            }
+
+            HStack(spacing: 12) {
+                Label("On-device", systemImage: "lock.shield.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Label("Private", systemImage: "hand.raised.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Label("Free", systemImage: "infinity")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

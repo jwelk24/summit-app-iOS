@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import WidgetKit
 
-struct SummitSnapshot: Codable {
+nonisolated struct SummitSnapshot: Codable {
     struct AccountSummary: Codable, Identifiable, Hashable {
         let id: UUID
         let name: String

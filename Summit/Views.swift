@@ -93,6 +93,16 @@ struct BudgetView: View {
         return d.formatted(.dateTime.month(.wide).year())
     }
 
+    private var monthOutflow: Decimal {
+        let cal = Calendar.current
+        let total = transactions
+            .filter { $0.amount < 0
+                && cal.component(.year, from: $0.date) == engine.selectedYear
+                && cal.component(.month, from: $0.date) == engine.selectedMonth }
+            .reduce(Decimal.zero) { $0 + $1.amount }
+        return abs(total)
+    }
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
@@ -105,7 +115,7 @@ struct BudgetView: View {
                             .font(.headline)
                             .frame(width: 32, height: 32)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .clipShape(Circle())
                     .disabled((currentMonthIndex ?? 0) <= 0)
                     .accessibilityIdentifier("prevMonthButton")
@@ -128,12 +138,14 @@ struct BudgetView: View {
                         HStack(spacing: 6) {
                             Text(currentMonthLabel)
                                 .font(.headline)
+                                .foregroundStyle(.primary)
                             Image(systemName: "chevron.down")
                                 .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(.tint.opacity(0.15), in: Capsule())
+                        .glassEffect(.regular.interactive(), in: Capsule())
                     }
                     .accessibilityIdentifier("monthSelector")
 
@@ -144,7 +156,7 @@ struct BudgetView: View {
                             .font(.headline)
                             .frame(width: 32, height: 32)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .clipShape(Circle())
                     .disabled({
                         let idx = currentMonthIndex ?? 0
@@ -155,22 +167,18 @@ struct BudgetView: View {
                 }
                 .padding(.horizontal)
 
-                HStack {
-                    Text("Available to Budget: \(currency(BudgetEngine.availableToBudget(transactions: transactions, budgetMonth: budgetMonth, year: engine.selectedYear, month: engine.selectedMonth)))")
-                        .font(.headline)
-                        .accessibilityIdentifier("availableToBudgetLabel")
-                    Spacer()
-                    if let aom = BudgetEngine.ageOfMoneyDays(transactions: transactions) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "calendar.badge.clock").font(.caption2)
-                            Text("Age of Money: \(aom)d").font(.caption.weight(.semibold))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.tint.opacity(0.12), in: Capsule())
-                        .accessibilityIdentifier("ageOfMoneyChip")
-                    }
-                }
+                BudgetHeroCard(
+                    monthLabel: currentMonthLabel,
+                    available: BudgetEngine.availableToBudget(
+                        transactions: transactions,
+                        budgetMonth: budgetMonth,
+                        year: engine.selectedYear,
+                        month: engine.selectedMonth
+                    ),
+                    assigned: budgetMonth?.allocations.reduce(Decimal.zero) { $0 + $1.amount } ?? 0,
+                    spent: monthOutflow,
+                    ageOfMoneyDays: BudgetEngine.ageOfMoneyDays(transactions: transactions)
+                )
                 .padding(.horizontal)
 
                 Group {
@@ -203,6 +211,7 @@ struct BudgetView: View {
                 }
             }
             .navigationTitle(budgetTitle)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -329,21 +338,336 @@ private struct BudgetEmptyState: View {
     var onManageCategories: () -> Void
 
     var body: some View {
-        ContentUnavailableView {
-            Label("Build Your Budget", systemImage: "list.bullet.rectangle.portrait")
-        } description: {
-            Text("Create category groups and categories to start assigning every dollar a job.")
-        } actions: {
+        SummitEmptyState(
+            icon: "list.bullet.rectangle.portrait",
+            title: "Build Your Budget",
+            message: "Create category groups and categories to start assigning every dollar a job."
+        ) {
             Button {
                 onManageCategories()
             } label: {
                 Label("Manage Categories", systemImage: "folder.badge.gearshape")
+                    .frame(maxWidth: 220)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
             .accessibilityIdentifier("budgetEmptyStateCTA")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .summitListBackground()
+    }
+}
+
+// MARK: - Shared Hero Card Components
+
+struct SummitCapsuleMeter: View {
+    let fraction: Double
+    let tint: Color
+    var height: CGFloat = 10
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.tertiary.opacity(0.35))
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [tint.opacity(0.75), tint],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(8, geo.size.width * min(max(fraction, 0), 1)))
+                    .shadow(color: tint.opacity(0.45), radius: 4, x: 0, y: 0)
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+struct SummitMiniStat: View {
+    let label: String
+    let value: String
+    var tint: Color = .primary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.4)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct SummitChip: View {
+    let text: String
+    var systemImage: String? = nil
+    var tint: Color = .accentColor
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage).font(.caption2)
+            }
+            Text(text).font(.caption.weight(.bold))
+        }
+        .monospacedDigit()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(tint.opacity(0.18), in: Capsule())
+        .overlay(Capsule().stroke(tint.opacity(0.35), lineWidth: 0.5))
+        .foregroundStyle(tint)
+    }
+}
+
+struct SummitGlassCard<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.white.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+}
+
+struct SummitHeroHeader: View {
+    let systemImage: String
+    let label: String
+    var trailing: AnyView? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.caption)
+                .foregroundStyle(.tint)
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.6)
+            Spacer(minLength: 4)
+            if let trailing { trailing }
+        }
+    }
+}
+
+struct SummitHeroAmount: View {
+    let caption: String
+    let value: String
+    var tint: Color = .accentColor
+    var size: CGFloat = 34
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(caption)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: size, weight: .bold, design: .rounded))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [tint, tint.opacity(0.75)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+        }
+    }
+}
+
+struct SummitEmptyState<Actions: View>: View {
+    let icon: String
+    let title: String
+    let message: String
+    var tint: Color = .accentColor
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer(minLength: 0)
+
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [tint.opacity(0.35), tint.opacity(0.0)],
+                            center: .center,
+                            startRadius: 4,
+                            endRadius: 70
+                        )
+                    )
+                    .frame(width: 140, height: 140)
+                Circle()
+                    .fill(tint.opacity(0.14))
+                    .frame(width: 92, height: 92)
+                    .overlay(
+                        Circle().stroke(tint.opacity(0.25), lineWidth: 0.5)
+                    )
+                Image(systemName: icon)
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [tint, tint.opacity(0.7)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 32)
+
+            actions()
+                .padding(.top, 4)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private let summitCategoryPalette: [Color] = [
+    .red, .orange, .yellow, .green, .mint, .teal,
+    .cyan, .blue, .indigo, .purple, .pink, .brown
+]
+
+func summitCategoryColor(_ name: String?) -> Color {
+    guard let name, !name.isEmpty else { return .gray }
+    let sum = name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+    return summitCategoryPalette[sum % summitCategoryPalette.count]
+}
+
+struct SummitCategoryDot: View {
+    let color: Color
+    var ringColor: Color? = nil
+    var size: CGFloat = 10
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: size, height: size)
+                .shadow(color: color.opacity(0.4), radius: 2, x: 0, y: 0)
+            if let ringColor {
+                Circle()
+                    .stroke(ringColor, lineWidth: 1.5)
+                    .frame(width: size + 4, height: size + 4)
+            }
+        }
+        .frame(width: size + 6, height: size + 6)
+    }
+}
+
+struct SummitSectionHeader: View {
+    let title: String
+    var systemImage: String? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tint)
+            }
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.6)
+        }
+    }
+}
+
+// MARK: - Budget Hero Card
+
+private struct BudgetHeroCard: View {
+    let monthLabel: String
+    let available: Decimal
+    let assigned: Decimal
+    let spent: Decimal
+    let ageOfMoneyDays: Int?
+
+    private var totalPool: Decimal { assigned + max(available, 0) }
+    private var assignedFraction: Double {
+        guard totalPool > 0 else { return 0 }
+        let frac = NSDecimalNumber(decimal: assigned).doubleValue
+                 / NSDecimalNumber(decimal: totalPool).doubleValue
+        return min(max(frac, 0), 1)
+    }
+    private var availableIsNegative: Bool { available < 0 }
+    private var availableTint: Color {
+        if availableIsNegative { return .red }
+        if available == 0 { return .secondary }
+        return .accentColor
+    }
+
+    var body: some View {
+        SummitGlassCard {
+            SummitHeroHeader(
+                systemImage: "mountain.2.fill",
+                label: monthLabel,
+                trailing: ageOfMoneyDays.map { aom in
+                    AnyView(
+                        SummitChip(text: "\(aom)d", systemImage: "calendar.badge.clock")
+                            .accessibilityIdentifier("ageOfMoneyChip")
+                    )
+                }
+            )
+
+            SummitHeroAmount(
+                caption: availableIsNegative ? "Overbudgeted" : "Available to Budget",
+                value: currency(available),
+                tint: availableTint
+            )
+            .accessibilityIdentifier("availableToBudgetLabel")
+
+            SummitCapsuleMeter(fraction: assignedFraction, tint: .accentColor)
+
+            HStack(alignment: .top, spacing: 12) {
+                SummitMiniStat(label: "Assigned", value: currency(assigned))
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "Spent", value: currency(spent))
+                Divider().frame(height: 28)
+                SummitMiniStat(
+                    label: availableIsNegative ? "Over" : "Left",
+                    value: currency(available),
+                    tint: availableTint
+                )
+            }
+        }
     }
 }
 
@@ -708,12 +1032,14 @@ private struct CategoryRow: View {
         let available = BudgetEngine.available(for: category, in: budgetMonth, year: year, month: month)
 
         HStack(spacing: 10) {
+            SummitCategoryDot(color: summitCategoryColor(category.name))
             goalIndicator(assigned: assigned, available: available)
             VStack(alignment: .leading, spacing: 2) {
                 Text(category.name)
                 Text("Activity \(currency(activity))  ·  Available \(currency(available))")
                     .font(.caption)
                     .foregroundStyle(available < 0 ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
+                    .monospacedDigit()
             }
             Spacer()
             if isEditing {
@@ -813,10 +1139,13 @@ private struct CategoryRow: View {
             let clamped = min(1.0, max(0.0, progress))
             let color: Color = progress >= 1.0 ? .green : .accentColor
             ZStack {
-                Circle().stroke(Color.gray.opacity(0.18), lineWidth: 3)
+                Circle().stroke(Color.gray.opacity(0.18), lineWidth: 3.5)
                 Circle()
                     .trim(from: 0, to: clamped)
-                    .stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .stroke(
+                        LinearGradient(colors: [color.opacity(0.7), color], startPoint: .top, endPoint: .bottom),
+                        style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
+                    )
                     .rotationEffect(.degrees(-90))
                 if progress >= 1.0 {
                     Image(systemName: "checkmark")
@@ -885,6 +1214,42 @@ struct TransactionsView: View {
         }
     }
 
+    fileprivate struct MonthMetrics {
+        let monthLabel: String
+        let income: Decimal
+        let spent: Decimal
+        let net: Decimal
+        let count: Int
+        let dayProgress: Double
+    }
+
+    private var monthMetrics: MonthMetrics {
+        let cal = Calendar.current
+        let now = Date()
+        let comps = cal.dateComponents([.year, .month, .day], from: now)
+        let year = comps.year ?? 2026
+        let month = comps.month ?? 1
+        let day = comps.day ?? 1
+        let monthlyTx = transactions.filter {
+            cal.component(.year, from: $0.date) == year
+                && cal.component(.month, from: $0.date) == month
+        }
+        let income = monthlyTx.filter { $0.amount > 0 }.reduce(Decimal.zero) { $0 + $1.amount }
+        let spent = abs(monthlyTx.filter { $0.amount < 0 }.reduce(Decimal.zero) { $0 + $1.amount })
+        let label = cal.date(from: DateComponents(year: year, month: month, day: 1))?
+            .formatted(.dateTime.month(.wide)) ?? ""
+        let daysInMonth = cal.range(of: .day, in: .month, for: now)?.count ?? 30
+        let progress = min(1.0, Double(day) / Double(daysInMonth))
+        return MonthMetrics(
+            monthLabel: label,
+            income: income,
+            spent: spent,
+            net: income - spent,
+            count: monthlyTx.count,
+            dayProgress: progress
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -896,31 +1261,38 @@ struct TransactionsView: View {
                         onLinkBank: { showingConnections = true }
                     )
                 } else {
-                    List {
-                        ForEach(transactions) { tx in
-                            Button { editing = tx } label: {
-                                TransactionRow(transaction: tx)
-                            }
-                            .buttonStyle(.plain)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    deleteTransaction(tx)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                    VStack(spacing: 12) {
+                        TransactionsHeroCard(metrics: monthMetrics)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+
+                        List {
+                            ForEach(transactions) { tx in
+                                Button { editing = tx } label: {
+                                    TransactionRow(transaction: tx)
                                 }
-                                .tint(.red)
+                                .buttonStyle(.plain)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        deleteTransaction(tx)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    .tint(.red)
+                                }
                             }
                         }
-                    }
-                    .listRowSpacing(4)
-                    .summitListBackground()
-                    .animation(.smooth(duration: 0.28), value: transactions.map(\.id))
-                    .refreshable {
-                        await refreshTransactions()
+                        .listRowSpacing(4)
+                        .summitListBackground()
+                        .animation(.smooth(duration: 0.28), value: transactions.map(\.id))
+                        .refreshable {
+                            await refreshTransactions()
+                        }
                     }
                 }
             }
             .navigationTitle(transactionsTitle)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -1067,12 +1439,15 @@ private struct TransactionRow: View {
     let transaction: TransactionModel
 
     var body: some View {
+        let categoryName = transaction.category?.name
+            ?? (transaction.splits.isEmpty ? nil : "Split")
+        let dotColor = categoryName.map(summitCategoryColor) ?? .gray
         HStack(spacing: 12) {
-            if let color = flagColor(transaction.flagColor) {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(color)
-                    .frame(width: 3, height: 32)
-            }
+            SummitCategoryDot(
+                color: dotColor,
+                ringColor: flagColor(transaction.flagColor),
+                size: 12
+            )
             VStack(alignment: .leading, spacing: 4) {
                 Text(transaction.merchant)
                 HStack(spacing: 6) {
@@ -1093,10 +1468,60 @@ private struct TransactionRow: View {
             }
             Spacer()
             Text(currency(transaction.amount))
+                .monospacedDigit()
                 .foregroundStyle(transaction.amount < 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.green))
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+    }
+}
+
+private struct TransactionsHeroCard: View {
+    let metrics: TransactionsView.MonthMetrics
+
+    private var netIsPositive: Bool { metrics.net >= 0 }
+    private var netTint: Color {
+        if metrics.net == 0 { return .secondary }
+        return netIsPositive ? .green : .red
+    }
+    private var spendFraction: Double {
+        guard metrics.income > 0 else { return metrics.spent > 0 ? 1.0 : 0 }
+        let frac = NSDecimalNumber(decimal: metrics.spent).doubleValue
+                 / NSDecimalNumber(decimal: metrics.income).doubleValue
+        return min(max(frac, 0), 1)
+    }
+    private var meterTint: Color {
+        if spendFraction > 1.0 { return .red }
+        if spendFraction > 0.85 { return .orange }
+        return .accentColor
+    }
+
+    var body: some View {
+        SummitGlassCard {
+            SummitHeroHeader(
+                systemImage: "creditcard.fill",
+                label: metrics.monthLabel,
+                trailing: AnyView(
+                    SummitChip(text: "\(metrics.count) tx", systemImage: "list.bullet")
+                )
+            )
+
+            SummitHeroAmount(
+                caption: netIsPositive ? "Net This Month" : "Net Loss This Month",
+                value: currency(metrics.net),
+                tint: netTint
+            )
+
+            SummitCapsuleMeter(fraction: spendFraction, tint: meterTint)
+
+            HStack(alignment: .top, spacing: 12) {
+                SummitMiniStat(label: "Income", value: currency(metrics.income), tint: .green)
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "Spent", value: currency(metrics.spent), tint: .red)
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "Net", value: currency(metrics.net), tint: netTint)
+            }
+        }
     }
 }
 
@@ -1107,11 +1532,11 @@ private struct TransactionsEmptyState: View {
     var onLinkBank: () -> Void
 
     var body: some View {
-        ContentUnavailableView {
-            Label("No Transactions Yet", systemImage: "tray")
-        } description: {
-            Text("Link a bank to pull in transactions automatically, or add them by hand.")
-        } actions: {
+        SummitEmptyState(
+            icon: "tray",
+            title: "No Transactions Yet",
+            message: "Link a bank to pull in transactions automatically, or add them by hand."
+        ) {
             VStack(spacing: 10) {
                 Button {
                     onLinkBank()
@@ -1119,7 +1544,7 @@ private struct TransactionsEmptyState: View {
                     Label("Link a Bank", systemImage: "building.columns")
                         .frame(maxWidth: 220)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .accessibilityIdentifier("transactionsEmptyLinkBank")
 
                 Button {
@@ -1128,7 +1553,7 @@ private struct TransactionsEmptyState: View {
                     Label("Add Manually", systemImage: "plus.circle")
                         .frame(maxWidth: 220)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .accessibilityIdentifier("transactionsEmptyAddManually")
 
                 Button {
@@ -1138,11 +1563,10 @@ private struct TransactionsEmptyState: View {
                           systemImage: canScanReceipts ? "doc.text.viewfinder" : "lock.fill")
                         .frame(maxWidth: 220)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .accessibilityIdentifier("transactionsEmptyScanReceipt")
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .summitListBackground()
     }
 }
@@ -1551,43 +1975,19 @@ struct NetWorthView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    HStack {
-                        Text("Net Worth").font(.headline)
-                        Spacer()
-                        Text(currency(netWorth))
-                            .font(.title2).bold()
-                            .foregroundStyle(netWorth >= 0 ? AnyShapeStyle(Color.green) : AnyShapeStyle(Color.red))
-                    }
-                    if let d = deltaVsPast {
-                        HStack(spacing: 6) {
-                            Image(systemName: d.delta >= 0 ? "arrow.up.right" : "arrow.down.right")
-                            Text(currency(d.delta))
-                            if let pct = d.percent {
-                                Text(String(format: "(%@%.1f%%)", pct >= 0 ? "+" : "", pct))
-                            }
-                            Text("vs \(rangeLabel)")
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.caption)
-                        .foregroundStyle(d.delta >= 0 ? AnyShapeStyle(Color.green) : AnyShapeStyle(Color.red))
-                        .accessibilityIdentifier("netWorthDeltaLabel")
-                    }
-                    HStack {
-                        Text("Total Assets").foregroundStyle(.secondary)
-                        Spacer()
-                        Text(currency(totalAssets))
-                    }
-                    HStack {
-                        Text("Total Liabilities").foregroundStyle(.secondary)
-                        Spacer()
-                        Text("-\(currency(totalLiabilities))")
-                    }
-                }
-                .summitRowBackground()
+            VStack(spacing: 12) {
+                NetWorthHeroCard(
+                    netWorth: netWorth,
+                    totalAssets: totalAssets,
+                    totalLiabilities: totalLiabilities,
+                    deltaVsPast: deltaVsPast,
+                    rangeLabel: rangeLabel
+                )
+                .padding(.horizontal)
+                .padding(.top, 8)
 
-                Section {
+                List {
+                    Section {
                     HStack {
                         Picker("Range", selection: $timeRange) {
                             ForEach(NetWorthTimeRange.allCases) { r in
@@ -1636,7 +2036,7 @@ struct NetWorthView: View {
                 .summitRowBackground()
 
                 if !linkedPlaidItems.isEmpty {
-                    Section("Linked Banks") {
+                    Section {
                         ForEach(linkedPlaidItems) { item in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -1671,12 +2071,14 @@ struct NetWorthView: View {
                             Label("Sync All", systemImage: "arrow.triangle.2.circlepath")
                         }
                         .disabled(syncingItemId != nil)
+                    } header: {
+                        SummitSectionHeader(title: "Linked Banks", systemImage: "building.columns.fill")
                     }
                     .summitRowBackground()
                 }
 
                 if !allAssets.isEmpty {
-                    Section("Assets") {
+                    Section {
                         ForEach(allAssets) { acc in
                             NavigationLink {
                                 AccountRegisterView(account: acc)
@@ -1688,12 +2090,14 @@ struct NetWorthView: View {
                                     .tint(.blue)
                             }
                         }
+                    } header: {
+                        SummitSectionHeader(title: "Assets", systemImage: "arrow.up.circle.fill")
                     }
                     .summitRowBackground()
                 }
 
                 if !allLiabilities.isEmpty {
-                    Section("Liabilities") {
+                    Section {
                         ForEach(allLiabilities) { acc in
                             NavigationLink {
                                 AccountRegisterView(account: acc)
@@ -1705,6 +2109,8 @@ struct NetWorthView: View {
                                     .tint(.blue)
                             }
                         }
+                    } header: {
+                        SummitSectionHeader(title: "Liabilities", systemImage: "arrow.down.circle.fill")
                     }
                     .summitRowBackground()
                 }
@@ -1719,9 +2125,11 @@ struct NetWorthView: View {
                     }
                     .summitRowBackground()
                 }
+                }
+                .summitListBackground()
             }
-            .summitListBackground()
             .navigationTitle(netWorthTitle)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -1949,7 +2357,7 @@ struct NetWorthView: View {
                     }
                 } header: {
                     HStack {
-                        Text("Investments")
+                        SummitSectionHeader(title: "Investments", systemImage: "chart.line.uptrend.xyaxis")
                         Spacer()
                         Text(currency(totalHoldingsValue))
                             .font(.caption)
@@ -1960,12 +2368,14 @@ struct NetWorthView: View {
                 .summitRowBackground()
             }
         } else if accounts.contains(where: { $0.type == .investment || $0.type == .retirement }) {
-            Section("Investments") {
+            Section {
                 LockedFeatureCard(feature: .investments) {
                     showingPaywall = true
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
+            } header: {
+                SummitSectionHeader(title: "Investments", systemImage: "chart.line.uptrend.xyaxis")
             }
         }
     }
@@ -1988,20 +2398,24 @@ struct NetWorthView: View {
     private var liabilityDetailsSection: some View {
         if entitlements.canTrackLiabilities {
             if !liabilityRows.isEmpty {
-                Section("Liability Details") {
+                Section {
                     ForEach(liabilityRows) { row in
                         LiabilityRow(account: row.account, liability: row.liability)
                     }
+                } header: {
+                    SummitSectionHeader(title: "Liability Details", systemImage: "doc.text.fill")
                 }
                 .summitRowBackground()
             }
         } else if accounts.contains(where: { $0.type == .creditCard || $0.type == .loan }) {
-            Section("Liability Details") {
+            Section {
                 LockedFeatureCard(feature: .liabilities) {
                     showingPaywall = true
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
+            } header: {
+                SummitSectionHeader(title: "Liability Details", systemImage: "doc.text.fill")
             }
         }
     }
@@ -2111,6 +2525,70 @@ private extension Decimal {
     var magnitude: Decimal { self < 0 ? -self : self }
 }
 
+// MARK: - Horizon Hero Card
+
+private struct HorizonHeroCard: View {
+    let rangeLabel: String
+    let starting: Decimal
+    let lowest: Decimal
+    let projected: Decimal
+    let canSeeMoreDays: Bool
+    let onUpgrade: () -> Void
+
+    private var projectedIsPositive: Bool { projected >= 0 }
+    private var projectedTint: Color {
+        if projected < 0 { return .red }
+        if lowest < 0 { return .orange }
+        return .accentColor
+    }
+    private var headroomFraction: Double {
+        guard starting > 0 else { return 0 }
+        let frac = NSDecimalNumber(decimal: max(lowest, 0)).doubleValue
+                 / NSDecimalNumber(decimal: starting).doubleValue
+        return min(max(frac, 0), 1)
+    }
+
+    var body: some View {
+        SummitGlassCard {
+            SummitHeroHeader(
+                systemImage: "mountain.2.fill",
+                label: "\(rangeLabel) Outlook",
+                trailing: AnyView(
+                    SummitChip(
+                        text: lowest < 0 ? "Low" : "Healthy",
+                        systemImage: lowest < 0 ? "exclamationmark.triangle.fill" : "checkmark.seal.fill",
+                        tint: lowest < 0 ? .orange : .green
+                    )
+                )
+            )
+
+            SummitHeroAmount(
+                caption: "Projected Balance",
+                value: currency(projected),
+                tint: projectedTint
+            )
+
+            SummitCapsuleMeter(fraction: headroomFraction, tint: lowest < 0 ? .red : .green)
+
+            HStack(alignment: .top, spacing: 12) {
+                SummitMiniStat(label: "Starting", value: currency(starting))
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "Lowest", value: currency(lowest), tint: lowest < 0 ? .red : .primary)
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "End", value: currency(projected), tint: projectedTint)
+            }
+
+            if !canSeeMoreDays {
+                Button(action: onUpgrade) {
+                    Label("Forecast up to a year — upgrade", systemImage: "infinity")
+                        .font(.caption)
+                }
+                .accessibilityIdentifier("horizonUpgradeButton")
+            }
+        }
+    }
+}
+
 // MARK: - TimelineView
 
 private struct ProjectionPoint: Identifiable {
@@ -2155,43 +2633,24 @@ struct HorizonView: View {
             let points = projection()
             let starting = startingBalance()
             let lowest = points.map(\.runningBalance).min() ?? starting
+            let projected = points.last?.runningBalance ?? starting
             let due = pendingItems()
 
-            List {
-                Section {
-                    HStack {
-                        Text("Starting Balance").foregroundStyle(.secondary)
-                        Spacer()
-                        Text(currency(starting))
-                    }
-                    HStack {
-                        Text("Lowest Projected").foregroundStyle(.secondary)
-                        Spacer()
-                        Text(currency(lowest))
-                            .foregroundStyle(lowest < 0 ? AnyShapeStyle(Color.red) : AnyShapeStyle(.primary))
-                    }
-                    if let last = points.last {
-                        HStack {
-                            Text("\(horizonRangeLabel) Projected").foregroundStyle(.secondary)
-                            Spacer()
-                            Text(currency(last.runningBalance))
-                                .bold()
-                        }
-                    }
-                    if !canSeeMoreDays {
-                        Button {
-                            showingPaywall = true
-                        } label: {
-                            Label("Forecast up to a year — upgrade", systemImage: "infinity")
-                                .font(.caption)
-                        }
-                        .accessibilityIdentifier("horizonUpgradeButton")
-                    }
-                }
-                .summitRowBackground()
+            VStack(spacing: 12) {
+                HorizonHeroCard(
+                    rangeLabel: horizonRangeLabel,
+                    starting: starting,
+                    lowest: lowest,
+                    projected: projected,
+                    canSeeMoreDays: canSeeMoreDays,
+                    onUpgrade: { showingPaywall = true }
+                )
+                .padding(.horizontal)
+                .padding(.top, 8)
 
+                List {
                 if !due.isEmpty {
-                    Section("Pending (Past Due)") {
+                    Section {
                         ForEach(due) { item in
                             HStack {
                                 VStack(alignment: .leading) {
@@ -2207,7 +2666,7 @@ struct HorizonView: View {
                                     Button("Post") {
                                         engine.postScheduled(item, context: context)
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(.glass)
                                     .controlSize(.small)
                                 }
                             }
@@ -2216,11 +2675,13 @@ struct HorizonView: View {
                                 editingScheduled = item
                             }
                         }
+                    } header: {
+                        SummitSectionHeader(title: "Pending (Past Due)", systemImage: "exclamationmark.triangle.fill")
                     }
                     .summitRowBackground()
                 }
 
-                Section("Next \(horizonDayCap) Days") {
+                Section {
                     if points.isEmpty {
                         Text("No scheduled income or bills in the next \(horizonDayCap) days. Tap + to add one.")
                             .foregroundStyle(.secondary)
@@ -2248,11 +2709,15 @@ struct HorizonView: View {
                             }
                         }
                     }
+                } header: {
+                    SummitSectionHeader(title: "Next \(horizonDayCap) Days", systemImage: "calendar")
                 }
                 .summitRowBackground()
+                }
+                .summitListBackground()
             }
-            .summitListBackground()
             .navigationTitle(horizonTitle)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if !due.isEmpty {
@@ -2961,7 +3426,7 @@ struct AccountRegisterView: View {
                     } label: {
                         Label("Reconcile", systemImage: "checkmark.seal")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .controlSize(.small)
                     .accessibilityIdentifier("reconcileButton")
                 }
@@ -3432,6 +3897,69 @@ private func netWorthAt(_ date: Date, accounts: [AccountModel]) -> Decimal {
 
 // MARK: - Net Worth Chart
 
+private struct NetWorthHeroCard: View {
+    let netWorth: Decimal
+    let totalAssets: Decimal
+    let totalLiabilities: Decimal
+    let deltaVsPast: (delta: Decimal, percent: Double?)?
+    let rangeLabel: String
+
+    private var netIsPositive: Bool { netWorth >= 0 }
+    private var netTint: Color {
+        if netWorth == 0 { return .secondary }
+        return netIsPositive ? .green : .red
+    }
+    private var assetFraction: Double {
+        let pool = totalAssets + totalLiabilities
+        guard pool > 0 else { return 1 }
+        let frac = NSDecimalNumber(decimal: totalAssets).doubleValue
+                 / NSDecimalNumber(decimal: pool).doubleValue
+        return min(max(frac, 0), 1)
+    }
+
+    var body: some View {
+        SummitGlassCard {
+            SummitHeroHeader(
+                systemImage: "chart.line.uptrend.xyaxis",
+                label: "Net Worth",
+                trailing: deltaVsPast.map { d in
+                    AnyView(
+                        SummitChip(
+                            text: deltaText(d),
+                            systemImage: d.delta >= 0 ? "arrow.up.right" : "arrow.down.right",
+                            tint: d.delta >= 0 ? .green : .red
+                        )
+                        .accessibilityIdentifier("netWorthDeltaLabel")
+                    )
+                }
+            )
+
+            SummitHeroAmount(
+                caption: netIsPositive ? "Total Net Worth" : "Net Worth",
+                value: currency(netWorth),
+                tint: netTint
+            )
+
+            SummitCapsuleMeter(fraction: assetFraction, tint: .green)
+
+            HStack(alignment: .top, spacing: 12) {
+                SummitMiniStat(label: "Assets", value: currency(totalAssets), tint: .green)
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "Liabilities", value: "-\(currency(totalLiabilities))", tint: .red)
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "vs \(rangeLabel)", value: deltaVsPast.map { currency($0.delta) } ?? "—", tint: netTint)
+            }
+        }
+    }
+
+    private func deltaText(_ d: (delta: Decimal, percent: Double?)) -> String {
+        if let pct = d.percent {
+            return String(format: "%@%.1f%%", pct >= 0 ? "+" : "", pct)
+        }
+        return currency(d.delta)
+    }
+}
+
 private enum NetWorthTimeRange: String, CaseIterable, Identifiable {
     case oneMonth = "1M"
     case threeMonths = "3M"
@@ -3770,6 +4298,56 @@ private struct MonthlyFlow: Identifiable {
     let spending: Double
 }
 
+private struct ReportsHeroCard: View {
+    let summary: ReportSummary
+    let periodLabel: String
+
+    private var netIsPositive: Bool { summary.net >= 0 }
+    private var netTint: Color {
+        if summary.net == 0 { return .secondary }
+        return netIsPositive ? .green : .red
+    }
+    private var spendFraction: Double {
+        guard summary.totalIncome > 0 else { return summary.totalSpending > 0 ? 1.0 : 0 }
+        let frac = NSDecimalNumber(decimal: summary.totalSpending).doubleValue
+                 / NSDecimalNumber(decimal: summary.totalIncome).doubleValue
+        return min(max(frac, 0), 1)
+    }
+    private var meterTint: Color {
+        if spendFraction > 1.0 { return .red }
+        if spendFraction > 0.85 { return .orange }
+        return .green
+    }
+
+    var body: some View {
+        SummitGlassCard {
+            SummitHeroHeader(
+                systemImage: "chart.pie.fill",
+                label: periodLabel,
+                trailing: AnyView(
+                    SummitChip(text: "\(summary.transactionCount) tx", systemImage: "list.bullet")
+                )
+            )
+
+            SummitHeroAmount(
+                caption: netIsPositive ? "Net" : "Net Loss",
+                value: currency(summary.net),
+                tint: netTint
+            )
+
+            SummitCapsuleMeter(fraction: spendFraction, tint: meterTint)
+
+            HStack(alignment: .top, spacing: 12) {
+                SummitMiniStat(label: "Income", value: currency(summary.totalIncome), tint: .green)
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "Spending", value: currency(summary.totalSpending), tint: .red)
+                Divider().frame(height: 28)
+                SummitMiniStat(label: "Net", value: currency(summary.net), tint: netTint)
+            }
+        }
+    }
+}
+
 struct ReportsView: View {
     @Environment(BudgetEngine.self) private var engine
 
@@ -3825,7 +4403,12 @@ struct ReportsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            VStack(spacing: 12) {
+                ReportsHeroCard(summary: summary, periodLabel: period.label)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                List {
                 Section {
                     ReportRangePicker(
                         range: $range,
@@ -3842,7 +4425,7 @@ struct ReportsView: View {
                             .foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("Range")
+                    SummitSectionHeader(title: "Range", systemImage: "calendar")
                 } footer: {
                     if entitlements.maxHistoryMonths < 24 {
                         Button {
@@ -3856,9 +4439,7 @@ struct ReportsView: View {
                 }
                 .summitRowBackground()
 
-                summarySection
-
-                Section("Spending in Range") {
+                Section {
                     let data = spendingByCategory
                     if data.isEmpty {
                         Text("No spending recorded in this range.")
@@ -3888,10 +4469,12 @@ struct ReportsView: View {
                         }
                         .frame(height: max(220, CGFloat(data.count) * 28))
                     }
+                } header: {
+                    SummitSectionHeader(title: "Spending in Range", systemImage: "chart.bar.fill")
                 }
                 .summitRowBackground()
 
-                Section("Income vs Spending (6 months)") {
+                Section {
                     let flows = sixMonthFlow
                     Chart {
                         ForEach(flows) { flow in
@@ -3925,11 +4508,15 @@ struct ReportsView: View {
                         }
                     }
                     .frame(height: 220)
+                } header: {
+                    SummitSectionHeader(title: "Income vs Spending (6 months)", systemImage: "chart.bar.xaxis")
                 }
                 .summitRowBackground()
+                }
+                .summitListBackground()
             }
-            .summitListBackground()
             .navigationTitle(reportsTitle)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -3978,38 +4565,6 @@ struct ReportsView: View {
                 Text(exportError ?? "")
             }
         }
-    }
-
-    @ViewBuilder
-    private var summarySection: some View {
-        let s = summary
-        Section("Summary") {
-            HStack {
-                Text("Income").foregroundStyle(.secondary)
-                Spacer()
-                Text(currency(s.totalIncome))
-                    .foregroundStyle(Color.green)
-            }
-            HStack {
-                Text("Spending").foregroundStyle(.secondary)
-                Spacer()
-                Text(currency(s.totalSpending))
-                    .foregroundStyle(Color.red)
-            }
-            HStack {
-                Text("Net").font(.headline)
-                Spacer()
-                Text(currency(s.net))
-                    .font(.headline)
-                    .foregroundStyle(s.net >= 0 ? Color.green : Color.red)
-            }
-            HStack {
-                Text("Transactions").foregroundStyle(.secondary)
-                Spacer()
-                Text("\(s.transactionCount)")
-            }
-        }
-        .summitRowBackground()
     }
 
     // MARK: - Export
