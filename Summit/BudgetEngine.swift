@@ -573,3 +573,82 @@ extension BudgetEngine {
     }
 }
 
+// MARK: - Goal Forecast
+
+enum GoalPace {
+    case reached
+    case onTrack(monthsEarly: Int)
+    case behind(monthsLate: Int)
+    case unfunded
+    case shortThisMonth(amountNeeded: Decimal)
+    case projecting(monthsToGoal: Int)
+}
+
+enum GoalForecast {
+    /// Forecast a goal's pacing based on historical contribution average.
+    /// - Parameters:
+    ///   - goal: the goal to forecast.
+    ///   - category: the category the goal belongs to.
+    ///   - assignedThisMonth: how much the user has assigned this month.
+    ///   - availableNow: total currently available in this category (assigned + activity).
+    ///   - currentYear/currentMonth: the month the user is viewing.
+    ///   - allMonths: every BudgetMonthModel — used to compute the average contribution.
+    ///   - asOf: reference date, defaults to now.
+    static func pace(
+        goal: GoalModel,
+        category: CategoryModel,
+        assignedThisMonth: Decimal,
+        availableNow: Decimal,
+        currentYear: Int,
+        currentMonth: Int,
+        allMonths: [BudgetMonthModel],
+        asOf: Date = .now
+    ) -> GoalPace {
+        let cal = Calendar.current
+        let avgMonthly = BudgetEngine.averageAssigned(
+            for: category,
+            monthsBack: 3,
+            currentYear: currentYear,
+            currentMonth: currentMonth,
+            allMonths: allMonths
+        )
+
+        switch goal.type {
+        case .monthlyAmount:
+            if assignedThisMonth >= goal.targetAmount {
+                return .reached
+            }
+            return .shortThisMonth(amountNeeded: goal.targetAmount - assignedThisMonth)
+
+        case .savingsTarget:
+            let remaining = goal.targetAmount - max(0, availableNow)
+            if remaining <= 0 { return .reached }
+            guard avgMonthly > 0 else { return .unfunded }
+            let monthsToGoal = (NSDecimalNumber(decimal: remaining).doubleValue
+                                / NSDecimalNumber(decimal: avgMonthly).doubleValue).rounded()
+            return .projecting(monthsToGoal: max(1, Int(monthsToGoal)))
+
+        case .byDateTarget:
+            let remaining = goal.targetAmount - max(0, availableNow)
+            if remaining <= 0 { return .reached }
+            guard let target = goal.targetDate else {
+                guard avgMonthly > 0 else { return .unfunded }
+                let monthsToGoal = (NSDecimalNumber(decimal: remaining).doubleValue
+                                    / NSDecimalNumber(decimal: avgMonthly).doubleValue).rounded()
+                return .projecting(monthsToGoal: max(1, Int(monthsToGoal)))
+            }
+            let monthsToDeadline = cal.dateComponents([.month], from: asOf, to: target).month ?? 0
+            guard avgMonthly > 0 else {
+                return monthsToDeadline > 0
+                    ? .behind(monthsLate: monthsToDeadline)
+                    : .behind(monthsLate: 0)
+            }
+            let projected = (NSDecimalNumber(decimal: remaining).doubleValue
+                             / NSDecimalNumber(decimal: avgMonthly).doubleValue).rounded()
+            let diff = monthsToDeadline - Int(projected)
+            if diff >= 1 { return .onTrack(monthsEarly: diff) }
+            if diff <= -1 { return .behind(monthsLate: -diff) }
+            return .onTrack(monthsEarly: 0)
+        }
+    }
+}

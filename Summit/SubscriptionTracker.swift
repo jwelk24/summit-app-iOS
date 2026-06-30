@@ -76,7 +76,9 @@ enum SubscriptionCadence: String, CaseIterable {
 enum SubscriptionDetector {
     static let ignoredMerchantsKey = "subscriptionTracker.ignoredMerchants"
 
-    /// Run detection over the supplied transactions.
+    enum RecurringDirection { case inflow, outflow }
+
+    /// Run outflow (subscription) detection over the supplied transactions.
     /// - Parameters:
     ///   - transactions: every transaction the user has, in any order.
     ///   - minOccurrences: minimum number of charges to consider a match.
@@ -87,15 +89,46 @@ enum SubscriptionDetector {
         minOccurrences: Int = 3,
         now: Date = .now
     ) -> [DetectedSubscription] {
+        detectRecurring(
+            transactions: transactions,
+            direction: .outflow,
+            minOccurrences: minOccurrences,
+            now: now
+        )
+    }
+
+    /// Run recurring income detection over the supplied transactions.
+    static func detectIncome(
+        transactions: [TransactionModel],
+        minOccurrences: Int = 3,
+        now: Date = .now
+    ) -> [DetectedSubscription] {
+        detectRecurring(
+            transactions: transactions,
+            direction: .inflow,
+            minOccurrences: minOccurrences,
+            now: now
+        )
+    }
+
+    private static func detectRecurring(
+        transactions: [TransactionModel],
+        direction: RecurringDirection,
+        minOccurrences: Int,
+        now: Date
+    ) -> [DetectedSubscription] {
         let ignored = Set(
             (UserDefaults.standard.array(forKey: ignoredMerchantsKey) as? [String]) ?? []
         )
 
-        // 1. Only outflows with a non-empty merchant.
-        let outflows = transactions.filter { $0.amount < 0 && !$0.merchant.trimmingCharacters(in: .whitespaces).isEmpty }
-
-        // 2. Group by canonicalized merchant.
-        let grouped = Dictionary(grouping: outflows) { canonicalMerchant($0.merchant) }
+        let filtered = transactions.filter { tx in
+            guard !tx.merchant.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+            switch direction {
+            case .outflow: return tx.amount < 0
+            case .inflow: return tx.amount > 0
+            }
+        }
+        let grouped = Dictionary(grouping: filtered) { canonicalMerchant($0.merchant) }
 
         var results: [DetectedSubscription] = []
         for (canonical, raw) in grouped {
@@ -234,6 +267,7 @@ struct SubscriptionsView: View {
     @State private var entitlements = Entitlements.shared
     @State private var showingPaywall = false
     @State private var detected: [DetectedSubscription] = []
+    @State private var detectedIncome: [DetectedSubscription] = []
     @State private var addedNotice: String?
     @State private var showingIgnored = false
 
@@ -275,11 +309,11 @@ struct SubscriptionsView: View {
 
     @ViewBuilder
     private var listContent: some View {
-        if detected.isEmpty {
+        if detected.isEmpty && detectedIncome.isEmpty {
             ContentUnavailableView {
-                Label("No Subscriptions Detected", systemImage: "repeat.circle")
+                Label("Nothing Recurring Detected", systemImage: "repeat.circle")
             } description: {
-                Text("Once you've had a few months of transactions, Summit will surface every recurring charge here.")
+                Text("Once you've had a few months of transactions, Summit will surface every recurring charge and paycheck here.")
             }
         } else {
             List {
@@ -293,7 +327,7 @@ struct SubscriptionsView: View {
 
                 Section {
                     HStack {
-                        Text("\(detected.count) detected")
+                        Text("\(detected.count) subscriptions · \(detectedIncome.count) income")
                         Spacer()
                         Text("\(currencyString(monthlyEstimate))/mo est.")
                             .monospacedDigit()
@@ -302,17 +336,39 @@ struct SubscriptionsView: View {
                     .font(.caption)
                 }
 
-                Section("Detected") {
-                    ForEach(detected) { sub in
-                        SubscriptionRow(
-                            sub: sub,
-                            alreadyScheduled: isAlreadyScheduled(sub),
-                            onSchedule: { schedule(sub) },
-                            onIgnore: { ignore(sub) }
-                        )
+                if !detectedIncome.isEmpty {
+                    Section {
+                        ForEach(detectedIncome) { sub in
+                            SubscriptionRow(
+                                sub: sub,
+                                isIncome: true,
+                                alreadyScheduled: isAlreadyScheduled(sub),
+                                onSchedule: { schedule(sub, isIncome: true) },
+                                onIgnore: { ignore(sub) }
+                            )
+                        }
+                    } header: {
+                        Text("Recurring Income")
                     }
+                    .summitRowBackground()
                 }
-                .summitRowBackground()
+
+                if !detected.isEmpty {
+                    Section {
+                        ForEach(detected) { sub in
+                            SubscriptionRow(
+                                sub: sub,
+                                isIncome: false,
+                                alreadyScheduled: isAlreadyScheduled(sub),
+                                onSchedule: { schedule(sub, isIncome: false) },
+                                onIgnore: { ignore(sub) }
+                            )
+                        }
+                    } header: {
+                        Text("Subscriptions")
+                    }
+                    .summitRowBackground()
+                }
             }
             .summitListBackground()
         }
@@ -322,20 +378,23 @@ struct SubscriptionsView: View {
 
     private var monthlyEstimate: Decimal {
         detected.reduce(Decimal.zero) { acc, sub in
-            let perMonth: Decimal
-            switch sub.cadence {
-            case .weekly: perMonth = sub.typicalAmount * 4
-            case .biweekly: perMonth = sub.typicalAmount * 2
-            case .monthly: perMonth = sub.typicalAmount
-            case .quarterly: perMonth = sub.typicalAmount / 3
-            case .yearly: perMonth = sub.typicalAmount / 12
-            }
-            return acc + perMonth
+            acc + perMonthAmount(sub)
+        }
+    }
+
+    private func perMonthAmount(_ sub: DetectedSubscription) -> Decimal {
+        switch sub.cadence {
+        case .weekly: return sub.typicalAmount * 4
+        case .biweekly: return sub.typicalAmount * 2
+        case .monthly: return sub.typicalAmount
+        case .quarterly: return sub.typicalAmount / 3
+        case .yearly: return sub.typicalAmount / 12
         }
     }
 
     private func rescan() {
         detected = SubscriptionDetector.detect(transactions: transactions)
+        detectedIncome = SubscriptionDetector.detectIncome(transactions: transactions)
         addedNotice = nil
     }
 
@@ -346,11 +405,11 @@ struct SubscriptionsView: View {
         }
     }
 
-    private func schedule(_ sub: DetectedSubscription) {
+    private func schedule(_ sub: DetectedSubscription, isIncome: Bool) {
         let item = ScheduledItemModel(
-            kind: .subscription,
+            kind: isIncome ? .paycheck : .subscription,
             name: sub.merchant,
-            amount: -sub.typicalAmount,
+            amount: isIncome ? sub.typicalAmount : -sub.typicalAmount,
             nextDate: sub.predictedNextDate,
             intervalDays: sub.cadence.intervalDays,
             account: sub.occurrences.first?.account,
@@ -375,6 +434,7 @@ struct SubscriptionsView: View {
 
 private struct SubscriptionRow: View {
     let sub: DetectedSubscription
+    var isIncome: Bool = false
     let alreadyScheduled: Bool
     let onSchedule: () -> Void
     let onIgnore: () -> Void
@@ -385,14 +445,15 @@ private struct SubscriptionRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(sub.merchant)
                         .font(.body.weight(.medium))
-                    Text("\(sub.cadence.displayName) · \(sub.occurrenceCount) charges")
+                    Text("\(sub.cadence.displayName) · \(sub.occurrenceCount) \(isIncome ? "deposits" : "charges")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(currencyString(sub.typicalAmount))
+                    Text((isIncome ? "+" : "") + currencyString(sub.typicalAmount))
                         .monospacedDigit()
+                        .foregroundStyle(isIncome ? AnyShapeStyle(Color.green) : AnyShapeStyle(.primary))
                     Text(totalLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)

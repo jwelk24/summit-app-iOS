@@ -564,6 +564,55 @@ func summitCategoryColor(_ name: String?) -> Color {
     return summitCategoryPalette[sum % summitCategoryPalette.count]
 }
 
+struct SummitPacePill: View {
+    let pace: GoalPace
+
+    private var label: String {
+        switch pace {
+        case .reached: return "Goal reached"
+        case .onTrack(let early):
+            return early >= 1 ? "On pace · \(early)mo early" : "On pace"
+        case .behind(let late):
+            return late >= 1 ? "Behind · \(late)mo late" : "Behind"
+        case .unfunded: return "No contributions"
+        case .shortThisMonth(let needed): return "+\(currency(needed)) this month"
+        case .projecting(let months): return "\(months)mo to goal"
+        }
+    }
+
+    private var icon: String {
+        switch pace {
+        case .reached: return "checkmark.seal.fill"
+        case .onTrack: return "checkmark.circle.fill"
+        case .behind: return "exclamationmark.triangle.fill"
+        case .unfunded, .shortThisMonth: return "minus.circle.fill"
+        case .projecting: return "calendar"
+        }
+    }
+
+    private var tint: Color {
+        switch pace {
+        case .reached, .onTrack: return .green
+        case .behind, .unfunded, .shortThisMonth: return .orange
+        case .projecting: return .accentColor
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.caption2.weight(.bold))
+            Text(label).font(.caption2.weight(.semibold))
+        }
+        .monospacedDigit()
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.15), in: Capsule())
+        .overlay(Capsule().stroke(tint.opacity(0.3), lineWidth: 0.5))
+        .foregroundStyle(tint)
+        .lineLimit(1)
+    }
+}
+
 struct SummitCategoryDot: View {
     let color: Color
     var ringColor: Color? = nil
@@ -1040,6 +1089,19 @@ private struct CategoryRow: View {
                     .font(.caption)
                     .foregroundStyle(available < 0 ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
                     .monospacedDigit()
+                if let goal = category.goals.first {
+                    let pace = GoalForecast.pace(
+                        goal: goal,
+                        category: category,
+                        assignedThisMonth: assigned,
+                        availableNow: available,
+                        currentYear: year,
+                        currentMonth: month,
+                        allMonths: allMonths
+                    )
+                    SummitPacePill(pace: pace)
+                        .padding(.top, 2)
+                }
             }
             Spacer()
             if isEditing {
@@ -2601,6 +2663,65 @@ private struct ProjectionPoint: Identifiable {
     let item: ScheduledItemModel
 }
 
+private struct RecurringDetectedNudge: View {
+    let chargesCount: Int
+    let incomeCount: Int
+    let onReview: () -> Void
+
+    private var summary: String {
+        var parts: [String] = []
+        if chargesCount > 0 {
+            parts.append("\(chargesCount) recurring charge\(chargesCount == 1 ? "" : "s")")
+        }
+        if incomeCount > 0 {
+            parts.append("\(incomeCount) income stream\(incomeCount == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        Button(action: onReview) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(.tint.opacity(0.18))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "sparkles")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.tint)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Detected and not yet scheduled")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(0.4)
+                    Text(summary)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.regularMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(.white.opacity(0.08), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("recurringDetectedNudge")
+    }
+}
+
 struct HorizonView: View {
     @Environment(BudgetEngine.self) private var engine
     @Environment(\.modelContext) private var context
@@ -2628,6 +2749,18 @@ struct HorizonView: View {
         entitlements.maxHorizonDays > 90
     }
 
+    private func unscheduledDetections(income: Bool) -> [DetectedSubscription] {
+        let detections = income
+            ? SubscriptionDetector.detectIncome(transactions: accounts.flatMap(\.transactions))
+            : SubscriptionDetector.detect(transactions: accounts.flatMap(\.transactions))
+        return detections.filter { sub in
+            let canonical = SubscriptionDetector.canonicalMerchant(sub.merchant)
+            return !scheduled.contains { item in
+                SubscriptionDetector.canonicalMerchant(item.name) == canonical
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             let points = projection()
@@ -2635,6 +2768,10 @@ struct HorizonView: View {
             let lowest = points.map(\.runningBalance).min() ?? starting
             let projected = points.last?.runningBalance ?? starting
             let due = pendingItems()
+
+            let unscheduledOutflows = unscheduledDetections(income: false)
+            let unscheduledIncome = unscheduledDetections(income: true)
+            let recurringTotal = unscheduledOutflows.count + unscheduledIncome.count
 
             VStack(spacing: 12) {
                 HorizonHeroCard(
@@ -2647,6 +2784,15 @@ struct HorizonView: View {
                 )
                 .padding(.horizontal)
                 .padding(.top, 8)
+
+                if recurringTotal > 0 && entitlements.canUseSubscriptionTracker {
+                    RecurringDetectedNudge(
+                        chargesCount: unscheduledOutflows.count,
+                        incomeCount: unscheduledIncome.count,
+                        onReview: { showingSubscriptions = true }
+                    )
+                    .padding(.horizontal)
+                }
 
                 List {
                 if !due.isEmpty {
@@ -4298,6 +4444,165 @@ private struct MonthlyFlow: Identifiable {
     let spending: Double
 }
 
+// MARK: - Spending Flow (Sankey)
+
+private struct SpendingFlowSlice: Identifiable {
+    let id = UUID()
+    let name: String
+    let amount: Decimal
+    let color: Color
+}
+
+private struct SpendingFlowData {
+    let totalIncome: Decimal
+    let savings: Decimal
+    let slices: [SpendingFlowSlice]
+
+    var hasData: Bool { totalIncome > 0 && !slices.isEmpty }
+    var totalFlow: Decimal {
+        max(totalIncome, slices.reduce(Decimal.zero) { $0 + $1.amount })
+    }
+
+    init(summary: ReportSummary, maxCategories: Int = 6) {
+        self.totalIncome = summary.totalIncome
+        self.savings = max(0, summary.totalIncome - summary.totalSpending)
+
+        let positive = summary.byCategory.filter { $0.amount > 0 }
+        let top = Array(positive.prefix(maxCategories))
+        let otherAmt = positive.dropFirst(maxCategories).reduce(Decimal.zero) { $0 + $1.amount }
+
+        var s = top.map {
+            SpendingFlowSlice(name: $0.name, amount: $0.amount, color: summitCategoryColor($0.name))
+        }
+        if otherAmt > 0 {
+            s.append(SpendingFlowSlice(name: "Other", amount: otherAmt, color: .gray))
+        }
+        if savings > 0 {
+            s.append(SpendingFlowSlice(name: "Savings", amount: savings, color: .green))
+        }
+        self.slices = s
+    }
+}
+
+private struct SpendingSankeyView: View {
+    let data: SpendingFlowData
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { ctx, size in
+                draw(in: ctx, size: size)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+
+    private func draw(in ctx: GraphicsContext, size: CGSize) {
+        let total = NSDecimalNumber(decimal: data.totalFlow).doubleValue
+        guard total > 0 else { return }
+
+        let nodeWidth: CGFloat = 16
+        let leftLabelWidth: CGFloat = 70
+        let rightLabelWidth: CGFloat = 100
+        let leftBarX: CGFloat = leftLabelWidth + 4
+        let rightBarX: CGFloat = size.width - rightLabelWidth - 4 - nodeWidth
+        let ribbonLeft = leftBarX + nodeWidth
+        let ribbonRight = rightBarX
+        let topPad: CGFloat = 4
+        let bottomPad: CGFloat = 4
+        let drawableH = max(20, size.height - topPad - bottomPad)
+
+        // Layout slices
+        struct Slot { let slice: SpendingFlowSlice; let y0: CGFloat; let y1: CGFloat }
+        var cumulative: CGFloat = topPad
+        let slots: [Slot] = data.slices.map { slice in
+            let amt = NSDecimalNumber(decimal: slice.amount).doubleValue
+            let sliceH = CGFloat(amt / total) * drawableH
+            let y0 = cumulative
+            let y1 = cumulative + sliceH
+            cumulative = y1
+            return Slot(slice: slice, y0: y0, y1: y1)
+        }
+
+        // Draw ribbons (behind nodes)
+        for slot in slots {
+            let path = Path { p in
+                let midX = (ribbonLeft + ribbonRight) / 2
+                p.move(to: CGPoint(x: ribbonLeft, y: slot.y0))
+                p.addCurve(
+                    to: CGPoint(x: ribbonRight, y: slot.y0),
+                    control1: CGPoint(x: midX, y: slot.y0),
+                    control2: CGPoint(x: midX, y: slot.y0)
+                )
+                p.addLine(to: CGPoint(x: ribbonRight, y: slot.y1))
+                p.addCurve(
+                    to: CGPoint(x: ribbonLeft, y: slot.y1),
+                    control1: CGPoint(x: midX, y: slot.y1),
+                    control2: CGPoint(x: midX, y: slot.y1)
+                )
+                p.closeSubpath()
+            }
+            ctx.fill(path, with: .color(slot.slice.color.opacity(0.45)))
+        }
+
+        // Left bar (income)
+        let leftBarRect = CGRect(x: leftBarX, y: topPad, width: nodeWidth, height: drawableH)
+        ctx.fill(
+            Path(roundedRect: leftBarRect, cornerRadius: 3),
+            with: .linearGradient(
+                Gradient(colors: [.accentColor, .accentColor.opacity(0.75)]),
+                startPoint: CGPoint(x: 0, y: topPad),
+                endPoint: CGPoint(x: 0, y: topPad + drawableH)
+            )
+        )
+
+        // Right bars (each slice)
+        for slot in slots {
+            let rect = CGRect(x: rightBarX, y: slot.y0, width: nodeWidth, height: max(2, slot.y1 - slot.y0))
+            ctx.fill(
+                Path(roundedRect: rect, cornerRadius: 3),
+                with: .linearGradient(
+                    Gradient(colors: [slot.slice.color, slot.slice.color.opacity(0.75)]),
+                    startPoint: CGPoint(x: 0, y: slot.y0),
+                    endPoint: CGPoint(x: 0, y: slot.y1)
+                )
+            )
+        }
+
+        // Left label: "Income $X"
+        let incomeText = Text("Income\n\(shortCurrency(data.totalIncome))")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.primary)
+        let incomeResolved = ctx.resolve(incomeText)
+        ctx.draw(
+            incomeResolved,
+            in: CGRect(x: 0, y: topPad, width: leftLabelWidth, height: drawableH)
+        )
+
+        // Right labels — one per slice
+        for slot in slots {
+            let label = Text("\(slot.slice.name)\n\(shortCurrency(slot.slice.amount))")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.primary)
+            let resolved = ctx.resolve(label)
+            let labelRect = CGRect(
+                x: rightBarX + nodeWidth + 6,
+                y: slot.y0,
+                width: rightLabelWidth - 6,
+                height: max(20, slot.y1 - slot.y0)
+            )
+            ctx.draw(resolved, at: CGPoint(x: labelRect.minX, y: (slot.y0 + slot.y1) / 2), anchor: .leading)
+        }
+    }
+
+    private func shortCurrency(_ d: Decimal) -> String {
+        let value = NSDecimalNumber(decimal: d).doubleValue
+        if abs(value) >= 1000 {
+            return String(format: "$%.1fk", value / 1000)
+        }
+        return String(format: "$%.0f", value)
+    }
+}
+
 private struct ReportsHeroCard: View {
     let summary: ReportSummary
     let periodLabel: String
@@ -4438,6 +4743,18 @@ struct ReportsView: View {
                     }
                 }
                 .summitRowBackground()
+
+                let flow = SpendingFlowData(summary: summary)
+                if flow.hasData {
+                    Section {
+                        SpendingSankeyView(data: flow)
+                            .frame(height: 260)
+                            .padding(.vertical, 4)
+                    } header: {
+                        SummitSectionHeader(title: "Spending Flow", systemImage: "arrow.triangle.branch")
+                    }
+                    .summitRowBackground()
+                }
 
                 Section {
                     let data = spendingByCategory
