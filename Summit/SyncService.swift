@@ -255,47 +255,54 @@ final class SyncService {
         }
 
         do {
-            // Step 1: Dedupe CategoryGroupModels by name. Pick the lexicographically smallest UUID
-            // so independent devices converge on the same survivor.
-            let groups = try context.fetch(FetchDescriptor<CategoryGroupModel>())
-            let groupsByName = Dictionary(grouping: groups, by: \.name)
-            for (_, dupes) in groupsByName where dupes.count > 1 {
-                let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
-                let survivor = sorted[0]
-                for dup in sorted.dropFirst() {
-                    for cat in Array(dup.categories) { cat.group = survivor }
-                    // Flush re-points so SwiftData's inverse update is committed
-                    // before we delete the dup group (otherwise cascade can hit re-pointed cats).
-                    try context.save()
-                    context.insert(SoftDeleteTombstone(table: "category_groups", recordID: dup.id))
-                    context.delete(dup)
-                    try context.save()
-                }
-            }
-
-            // Step 2: Dedupe CategoryModels by (group.id, name).
-            let categories = try context.fetch(FetchDescriptor<CategoryModel>())
-            let categoriesByKey = Dictionary(grouping: categories) { cat -> String in
-                let groupKey = cat.group.map(\.id.uuidString) ?? "_"
-                return "\(groupKey)|\(cat.name)"
-            }
-            for (_, dupes) in categoriesByKey where dupes.count > 1 {
-                let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
-                let survivor = sorted[0]
-                for dup in sorted.dropFirst() {
-                    for tx in Array(dup.transactions) { tx.category = survivor }
-                    for goal in Array(dup.goals) { goal.category = survivor }
-                    for alloc in Array(dup.allocations) { alloc.category = survivor }
-                    for split in Array(dup.splits) { split.category = survivor }
-                    try context.save()
-                    context.insert(SoftDeleteTombstone(table: "categories", recordID: dup.id))
-                    context.delete(dup)
-                    try context.save()
-                }
-            }
+            try deduplicateCategoriesAndGroups(context: context)
         } catch {
             lastError = error.localizedDescription
             return
+        }
+    }
+
+    /// Merges duplicate category groups (by name) and categories (by group + name)
+    /// created by fresh-install seeds colliding with the household. Keeps the
+    /// smallest-UUID survivor so devices converge, repoints children, then
+    /// tombstones + deletes the rest (tombstones propagate via `pushDeletions`).
+    private func deduplicateCategoriesAndGroups(context: ModelContext) throws {
+        // Step 1: Dedupe CategoryGroupModels by name.
+        let groups = try context.fetch(FetchDescriptor<CategoryGroupModel>())
+        let groupsByName = Dictionary(grouping: groups, by: \.name)
+        for (_, dupes) in groupsByName where dupes.count > 1 {
+            let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
+            let survivor = sorted[0]
+            for dup in sorted.dropFirst() {
+                for cat in Array(dup.categories) { cat.group = survivor }
+                // Flush re-points so SwiftData's inverse update is committed
+                // before we delete the dup group (otherwise cascade can hit re-pointed cats).
+                try context.save()
+                context.insert(SoftDeleteTombstone(table: "category_groups", recordID: dup.id))
+                context.delete(dup)
+                try context.save()
+            }
+        }
+
+        // Step 2: Dedupe CategoryModels by (group.id, name).
+        let categories = try context.fetch(FetchDescriptor<CategoryModel>())
+        let categoriesByKey = Dictionary(grouping: categories) { cat -> String in
+            let groupKey = cat.group.map(\.id.uuidString) ?? "_"
+            return "\(groupKey)|\(cat.name)"
+        }
+        for (_, dupes) in categoriesByKey where dupes.count > 1 {
+            let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
+            let survivor = sorted[0]
+            for dup in sorted.dropFirst() {
+                for tx in Array(dup.transactions) { tx.category = survivor }
+                for goal in Array(dup.goals) { goal.category = survivor }
+                for alloc in Array(dup.allocations) { alloc.category = survivor }
+                for split in Array(dup.splits) { split.category = survivor }
+                try context.save()
+                context.insert(SoftDeleteTombstone(table: "categories", recordID: dup.id))
+                context.delete(dup)
+                try context.save()
+            }
         }
     }
 
@@ -354,6 +361,13 @@ final class SyncService {
         }
 
         if canWrite {
+            // Merge duplicate accounts (fresh-install seeds that collided with the
+            // household's existing accounts) before pushing, so survivors push and
+            // the losers' tombstones propagate via pushDeletions below.
+            do { try deduplicateAccounts(context: context) }
+            catch { perTableErrors.append("dedupe accounts: \(error.localizedDescription)") }
+            do { try deduplicateCategoriesAndGroups(context: context) }
+            catch { perTableErrors.append("dedupe categories: \(error.localizedDescription)") }
             await runPush("accounts") { try await pushAccounts(context: context, householdID: household.id) }
             await runPush("category_groups") { try await pushCategoryGroups(context: context, householdID: household.id) }
             await runPush("categories") { try await pushCategories(context: context, householdID: household.id) }
@@ -397,6 +411,59 @@ final class SyncService {
     }
 
     // MARK: - Accounts
+
+    /// Merges duplicate `AccountModel`s created when a fresh-install seed collides
+    /// with the household's existing accounts. Groups by identity — Plaid-linked
+    /// accounts keep their `plaidAccountId` (so two distinct real accounts are never
+    /// merged), everything else by name+type — keeps the smallest-UUID survivor so
+    /// devices converge, repoints all children, then tombstones + deletes the rest.
+    /// Tombstones propagate to the server via `pushDeletions`.
+    private func deduplicateAccounts(context: ModelContext) throws {
+        let accounts = try context.fetch(FetchDescriptor<AccountModel>())
+        guard accounts.count > 1 else { return }
+
+        let links = try context.fetch(FetchDescriptor<PlaidAccountLinkModel>())
+        var plaidIdByAccount: [UUID: String] = [:]
+        for link in links { plaidIdByAccount[link.accountModelId] = link.plaidAccountId }
+
+        let byKey = Dictionary(grouping: accounts) { (acct: AccountModel) -> String in
+            if let plaidId = plaidIdByAccount[acct.id] { return "plaid|\(plaidId)" }
+            return "manual|\(acct.name)|\(acct.type.rawValue)"
+        }
+        guard byKey.contains(where: { $0.value.count > 1 }) else { return }
+
+        // Fetch reference collections once; account counts are small when this runs.
+        let allLiabilities = try context.fetch(FetchDescriptor<LiabilityModel>())
+        let allHoldings = try context.fetch(FetchDescriptor<InvestmentHoldingModel>())
+        let allInvTxns = try context.fetch(FetchDescriptor<InvestmentTransactionModel>())
+        let allScheduled = try context.fetch(FetchDescriptor<ScheduledItemModel>())
+        let allLinkedCats = try context.fetch(FetchDescriptor<CategoryModel>())
+
+        for (_, dupes) in byKey where dupes.count > 1 {
+            let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
+            let survivor = sorted[0]
+            for dup in sorted.dropFirst() {
+                let dupID = dup.id
+                // Inverse relationships on AccountModel.
+                for tx in Array(dup.transactions) { tx.account = survivor }
+                for snap in Array(dup.snapshots) { snap.account = survivor }
+                // References held elsewhere.
+                for l in allLiabilities where l.account?.id == dupID { l.account = survivor }
+                for h in allHoldings where h.account?.id == dupID { h.account = survivor }
+                for i in allInvTxns where i.account?.id == dupID { i.account = survivor }
+                for s in allScheduled where s.account?.id == dupID { s.account = survivor }
+                for c in allLinkedCats where c.linkedAccount?.id == dupID { c.linkedAccount = survivor }
+                // Plaid links reference the account by stored UUID, not a relationship.
+                for pl in links where pl.accountModelId == dupID { pl.accountModelId = survivor.id }
+                // Flush re-points before deleting so the cascade can't take moved children.
+                try context.save()
+
+                context.insert(SoftDeleteTombstone(table: "accounts", recordID: dupID))
+                context.delete(dup)
+                try context.save()
+            }
+        }
+    }
 
     private func pushAccounts(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<AccountModel>())
