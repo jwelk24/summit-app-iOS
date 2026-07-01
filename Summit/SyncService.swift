@@ -241,6 +241,9 @@ final class SyncService {
 
     private let throttleInterval: TimeInterval = 15
 
+    /// Guards the one-time seed-collision cleanup so it runs once per app launch.
+    private var didDedupeThisLaunch = false
+
     func deduplicateCategories(context: ModelContext) async {
         isSyncing = true
         defer { isSyncing = false }
@@ -298,6 +301,7 @@ final class SyncService {
                 for goal in Array(dup.goals) { goal.category = survivor }
                 for alloc in Array(dup.allocations) { alloc.category = survivor }
                 for split in Array(dup.splits) { split.category = survivor }
+                for item in Array(dup.scheduledItems) { item.category = survivor }
                 try context.save()
                 context.insert(SoftDeleteTombstone(table: "categories", recordID: dup.id))
                 context.delete(dup)
@@ -360,6 +364,14 @@ final class SyncService {
             catch { if !isCancellation(error) { perTableErrors.append("pull \(label): \(error.localizedDescription)") } }
         }
 
+        // One-time cleanup of fresh-install seed duplicates. Runs on a background
+        // context so deletions reach the UI as a clean @Query refresh, then the
+        // tombstones propagate to the server via pushDeletions.
+        if canWrite && !didDedupeThisLaunch {
+            didDedupeThisLaunch = true
+            await deduplicateSeedCollisions(mainContext: context)
+        }
+
         if canWrite {
             await runPush("accounts") { try await pushAccounts(context: context, householdID: household.id) }
             await runPush("category_groups") { try await pushCategoryGroups(context: context, householdID: household.id) }
@@ -404,6 +416,70 @@ final class SyncService {
     }
 
     // MARK: - Accounts
+
+    /// One-time cleanup of fresh-install seed duplicates across all affected entity
+    /// types. Runs on a **separate** `ModelContext` so deletions merge into the
+    /// view context as clean @Query refreshes (deleting on the view's own context
+    /// mid-render invalidates held refs). Realtime is paused for the duration.
+    /// Tombstones propagate to the server via `pushDeletions` on subsequent syncs.
+    private func deduplicateSeedCollisions(mainContext: ModelContext) async {
+        await RealtimeService.shared.stop()
+        defer {
+            if let householdID = HouseholdService.shared.currentHousehold?.id {
+                Task { await RealtimeService.shared.start(context: mainContext, householdID: householdID) }
+            }
+        }
+        let ctx = ModelContext(mainContext.container)
+        do {
+            try deduplicateAccounts(context: ctx)
+            try deduplicateCategoriesAndGroups(context: ctx)
+            try deduplicateScheduledItems(context: ctx)
+            try deduplicateTransactions(context: ctx)
+            if ctx.hasChanges { try ctx.save() }
+        } catch {
+            lastError = "dedupe: \(error.localizedDescription)"
+        }
+    }
+
+    /// Dedupes recurring items by kind + name + amount + interval. Scheduled items
+    /// are leaf records, so losers can be tombstoned and deleted directly.
+    private func deduplicateScheduledItems(context: ModelContext) throws {
+        let items = try context.fetch(FetchDescriptor<ScheduledItemModel>())
+        guard items.count > 1 else { return }
+        let byKey = Dictionary(grouping: items) { s in
+            "\(s.kind.rawValue)|\(s.name)|\(NSDecimalNumber(decimal: s.amount).stringValue)|\(s.intervalDays)"
+        }
+        for (_, dupes) in byKey where dupes.count > 1 {
+            let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
+            for dup in sorted.dropFirst() {
+                context.insert(SoftDeleteTombstone(table: "scheduled_items", recordID: dup.id))
+                context.delete(dup)
+            }
+        }
+        try context.save()
+    }
+
+    /// Dedupes transactions that are exactly identical: same calendar day, merchant,
+    /// amount, and account. A duplicate's splits cascade-delete with it (they're
+    /// duplicates too). Tombstoned so the server's pull-side deletion converges.
+    private func deduplicateTransactions(context: ModelContext) throws {
+        let txns = try context.fetch(FetchDescriptor<TransactionModel>())
+        guard txns.count > 1 else { return }
+        let cal = Calendar.current
+        let byKey = Dictionary(grouping: txns) { t -> String in
+            let day = cal.startOfDay(for: t.date).timeIntervalSince1970
+            let account = t.account?.id.uuidString ?? "none"
+            return "\(day)|\(t.merchant)|\(NSDecimalNumber(decimal: t.amount).stringValue)|\(account)"
+        }
+        for (_, dupes) in byKey where dupes.count > 1 {
+            let sorted = dupes.sorted { $0.id.uuidString < $1.id.uuidString }
+            for dup in sorted.dropFirst() {
+                context.insert(SoftDeleteTombstone(table: "transactions", recordID: dup.id))
+                context.delete(dup)
+            }
+        }
+        try context.save()
+    }
 
     /// Merges duplicate `AccountModel`s created when a fresh-install seed collides
     /// with the household's existing accounts. Groups by identity — Plaid-linked
