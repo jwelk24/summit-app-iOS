@@ -86,6 +86,10 @@ final class TransactionModel {
     var memo: String?
     var cleared: Bool
     var flagColor: String?
+    /// Plaid `personal_finance_category.primary` (e.g. "INCOME", "TRANSFER_IN").
+    /// Drives cash-flow classification for the savings rate; `nil` for manually
+    /// entered transactions, which fall back to sign-based classification.
+    var pfcPrimary: String?
 
     var account: AccountModel?
     var category: CategoryModel?
@@ -93,7 +97,7 @@ final class TransactionModel {
     @Relationship(deleteRule: .cascade, inverse: \TransactionSplitModel.transaction)
     var splits: [TransactionSplitModel]
 
-    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, account: AccountModel? = nil, category: CategoryModel? = nil) {
+    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, pfcPrimary: String? = nil, account: AccountModel? = nil, category: CategoryModel? = nil) {
         self.id = id
         self.date = date
         self.amount = amount
@@ -101,6 +105,7 @@ final class TransactionModel {
         self.memo = memo
         self.cleared = cleared
         self.flagColor = flagColor
+        self.pfcPrimary = pfcPrimary
         self.account = account
         self.category = category
         self.splits = []

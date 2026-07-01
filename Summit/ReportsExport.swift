@@ -87,6 +87,43 @@ struct ReportPeriod: Equatable {
     }
 }
 
+// MARK: - Cash-flow classification
+
+/// How a transaction participates in income / spending / savings-rate math.
+/// Driven by Plaid's `personal_finance_category.primary` so that internal
+/// transfers, credit-card payments, and refunds don't masquerade as income or
+/// inflate spending.
+enum CashFlowKind {
+    /// Real income — the denominator of the savings rate.
+    case income
+    /// Real spending — subtracted from income to get the amount saved.
+    case expense
+    /// Money moving between the user's own accounts, debt payments, or other
+    /// non-income inflows. Excluded from income, spending, and the savings rate.
+    case transfer
+}
+
+extension TransactionModel {
+    /// Plaid `personal_finance_category.primary` values that are not real income
+    /// or spending, but money shuffled between accounts / paid toward debts.
+    private static let transferPFCs: Set<String> = [
+        "TRANSFER_IN", "TRANSFER_OUT", "LOAN_PAYMENTS",
+    ]
+
+    var cashFlowKind: CashFlowKind {
+        // Manually entered transactions carry no Plaid category; classify by sign.
+        guard let pfc = pfcPrimary, !pfc.isEmpty else {
+            return amount > 0 ? .income : .expense
+        }
+        if pfc == "INCOME" { return .income }
+        if Self.transferPFCs.contains(pfc) { return .transfer }
+        // A categorized outflow is real spending. A positive amount that Plaid
+        // did NOT mark as income (e.g. a merchant refund) is treated as a
+        // transfer so it can't inflate income.
+        return amount < 0 ? .expense : .transfer
+    }
+}
+
 // MARK: - Computed report data
 
 struct ReportSummary {
@@ -96,6 +133,16 @@ struct ReportSummary {
     var net: Decimal { totalIncome - totalSpending }
     let byCategory: [(name: String, amount: Decimal)]
     let transactionCount: Int
+
+    /// Fraction of income kept (net / income), e.g. 0.25 for a 25% savings rate.
+    /// `nil` when there's no income in the period, so the UI can show "—" rather
+    /// than a misleading 0% or a divide-by-zero. Can be negative when spending
+    /// exceeds income.
+    var savingsRate: Double? {
+        guard totalIncome > 0 else { return nil }
+        return NSDecimalNumber(decimal: net).doubleValue
+             / NSDecimalNumber(decimal: totalIncome).doubleValue
+    }
 }
 
 enum ReportBuilder {
@@ -107,10 +154,11 @@ enum ReportBuilder {
 
         for tx in transactions where tx.date >= period.start && tx.date <= period.end {
             count += 1
-            if tx.amount > 0 {
+            switch tx.cashFlowKind {
+            case .income:
                 income += tx.amount
-            } else {
-                let abs = -tx.amount
+            case .expense:
+                let abs = tx.amount < 0 ? -tx.amount : tx.amount
                 spending += abs
                 if tx.splits.isEmpty {
                     let name = tx.category?.name ?? "Uncategorized"
@@ -122,6 +170,8 @@ enum ReportBuilder {
                         byCat[name, default: 0] += splitAbs
                     }
                 }
+            case .transfer:
+                break // excluded from income, spending, and the savings rate
             }
         }
 

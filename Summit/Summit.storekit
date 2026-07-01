@@ -33,7 +33,7 @@
           },
           "localizations" : [
             {
-              "description" : "Connect up to 5 bank accounts, sync across devices, and plan 30 days ahead.",
+              "description" : "Connect up to 15 bank accounts, sync across devices, and plan 30 days ahead.",
               "displayName" : "Summit Pro Monthly",
               "locale" : "en_US"
             }
@@ -83,7 +83,7 @@
           },
           "localizations" : [
             {
-              "description" : "Everything in Pro, plus family sharing, AI insights, investments, receipt scanning, and up to 20 linked banks.",
+              "description" : "Everything in Pro, plus family sharing, AI insights, investments, receipt scanning, and unlimited linked banks.",
               "displayName" : "Summit Premium Monthly",
               "locale" : "en_US"
             }

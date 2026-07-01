@@ -121,7 +121,9 @@ final class Entitlements {
 
     // MARK: Numeric caps
 
-    var maxPlaidItems: Int { tier == .premium ? 20 : 5 }
+    /// Premium is effectively unlimited; the cap is only an anti-abuse / cost
+    /// backstop. Pro gets a generous allowance.
+    var maxPlaidItems: Int { tier == .premium ? 100 : 15 }
     var maxHorizonDays: Int { tier == .premium ? 365 : 30 }
     var maxHistoryMonths: Int { tier == .premium ? .max : 12 }
 
@@ -198,7 +200,7 @@ enum PremiumFeature: String, CaseIterable {
         case .smartAlerts: return "Smart Alerts"
         case .subscriptionTracker: return "Subscription Tracker"
         case .unlimitedHorizon: return "Unlimited Horizon"
-        case .unlimitedBankLinks: return "Up to 20 Bank Links"
+        case .unlimitedBankLinks: return "Unlimited Bank Links"
         }
     }
 
@@ -214,7 +216,7 @@ enum PremiumFeature: String, CaseIterable {
         case .smartAlerts: return "Get notified about overspending and unusual charges."
         case .subscriptionTracker: return "Surface every recurring charge so nothing slips by."
         case .unlimitedHorizon: return "Forecast cash flow as far as a year out."
-        case .unlimitedBankLinks: return "Connect up to 20 bank, credit, and investment accounts."
+        case .unlimitedBankLinks: return "Connect all your bank, credit, and investment accounts — no limit."
         }
     }
 }
@@ -271,7 +273,7 @@ struct PaywallView: View {
                 }
 
                 Section {
-                    PaywallFeatureRow(icon: "link.icloud", title: "Bank linking via Plaid (up to 5)")
+                    PaywallFeatureRow(icon: "link.icloud", title: "Bank linking via Plaid (up to 15)")
                     PaywallFeatureRow(icon: "icloud", title: "Cloud sync across devices")
                     PaywallFeatureRow(icon: "calendar", title: "30-day cash-flow forecast")
                     PaywallFeatureRow(icon: "chart.pie", title: "Reports & 12-month history")

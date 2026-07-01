@@ -328,6 +328,7 @@ struct PlaidSyncService {
             merchant: merchant,
             memo: tx.personal_finance_category?.detailed,
             cleared: !tx.pending,
+            pfcPrimary: tx.personal_finance_category?.primary,
             account: account
         )
         context.insert(model)
@@ -349,6 +350,7 @@ struct PlaidSyncService {
         model.amount = Decimal(-tx.amount)
         model.merchant = tx.merchant_name ?? tx.name
         model.memo = tx.personal_finance_category?.detailed
+        model.pfcPrimary = tx.personal_finance_category?.primary
         model.cleared = !tx.pending
         link.pending = tx.pending
     }

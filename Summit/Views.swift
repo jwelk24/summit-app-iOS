@@ -1251,6 +1251,178 @@ private struct CategoryRow: View {
 
 // MARK: - TransactionsView
 
+struct TxFilter: Equatable {
+    enum Flow: String, CaseIterable, Identifiable {
+        case all, income, expense
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .all: "All"
+            case .income: "Income"
+            case .expense: "Expenses"
+            }
+        }
+    }
+
+    enum ClearedState: String, CaseIterable, Identifiable {
+        case all, cleared, uncleared
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .all: "All"
+            case .cleared: "Cleared"
+            case .uncleared: "Uncleared"
+            }
+        }
+    }
+
+    var accountID: UUID?
+    var categoryID: UUID?
+    var flow: Flow = .all
+    var cleared: ClearedState = .all
+    var flaggedOnly = false
+    /// Compared against the transaction's absolute amount.
+    var minAmount: Decimal?
+    var maxAmount: Decimal?
+    var startDate: Date?
+    var endDate: Date?
+
+    var isActive: Bool {
+        accountID != nil || categoryID != nil || flow != .all || cleared != .all || flaggedOnly
+            || minAmount != nil || maxAmount != nil || startDate != nil || endDate != nil
+    }
+}
+
+private struct TransactionFilterSheet: View {
+    @Binding var filter: TxFilter
+    let accounts: [AccountModel]
+    let categories: [CategoryModel]
+    @Environment(\.dismiss) private var dismiss
+
+    /// String binding for an optional Decimal bound — empty text clears the bound.
+    private func amountText(_ keyPath: WritableKeyPath<TxFilter, Decimal?>) -> Binding<String> {
+        Binding(
+            get: {
+                guard let value = filter[keyPath: keyPath] else { return "" }
+                return NSDecimalNumber(decimal: value).stringValue
+            },
+            set: { newText in
+                let trimmed = newText.trimmingCharacters(in: .whitespaces)
+                filter[keyPath: keyPath] = trimmed.isEmpty ? nil : Decimal(string: trimmed)
+            }
+        )
+    }
+
+    private func dateBinding(_ keyPath: WritableKeyPath<TxFilter, Date?>) -> Binding<Date> {
+        Binding(
+            get: { filter[keyPath: keyPath] ?? Date() },
+            set: { filter[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private var dateRangeEnabled: Binding<Bool> {
+        Binding(
+            get: { filter.startDate != nil || filter.endDate != nil },
+            set: { isOn in
+                if isOn {
+                    let cal = Calendar.current
+                    filter.startDate = cal.date(byAdding: .month, value: -1, to: Date())
+                    filter.endDate = Date()
+                } else {
+                    filter.startDate = nil
+                    filter.endDate = nil
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Type") {
+                    Picker("Flow", selection: $filter.flow) {
+                        ForEach(TxFilter.Flow.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Account") {
+                    Picker("Account", selection: $filter.accountID) {
+                        Text("All Accounts").tag(UUID?.none)
+                        ForEach(accounts.sorted { $0.name < $1.name }) { account in
+                            Text(account.name).tag(UUID?.some(account.id))
+                        }
+                    }
+                }
+
+                Section("Category") {
+                    Picker("Category", selection: $filter.categoryID) {
+                        Text("All Categories").tag(UUID?.none)
+                        ForEach(categories.sorted { $0.name < $1.name }) { category in
+                            Text(category.name).tag(UUID?.some(category.id))
+                        }
+                    }
+                }
+
+                Section("Amount") {
+                    HStack {
+                        Text("Min")
+                            .foregroundStyle(.secondary)
+                        TextField("No minimum", text: amountText(\.minAmount))
+                            .multilineTextAlignment(.trailing)
+                            #if canImport(UIKit)
+                            .keyboardType(.decimalPad)
+                            #endif
+                    }
+                    HStack {
+                        Text("Max")
+                            .foregroundStyle(.secondary)
+                        TextField("No maximum", text: amountText(\.maxAmount))
+                            .multilineTextAlignment(.trailing)
+                            #if canImport(UIKit)
+                            .keyboardType(.decimalPad)
+                            #endif
+                    }
+                }
+
+                Section("Date Range") {
+                    Toggle("Filter by date", isOn: dateRangeEnabled)
+                    if filter.startDate != nil || filter.endDate != nil {
+                        DatePicker("From", selection: dateBinding(\.startDate), displayedComponents: .date)
+                        DatePicker("To", selection: dateBinding(\.endDate), displayedComponents: .date)
+                    }
+                }
+
+                Section("Status") {
+                    Picker("Cleared", selection: $filter.cleared) {
+                        ForEach(TxFilter.ClearedState.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle("Flagged only", isOn: $filter.flaggedOnly)
+                }
+
+                if filter.isActive {
+                    Section {
+                        Button(role: .destructive) {
+                            filter = TxFilter()
+                        } label: {
+                            Label("Clear All Filters", systemImage: "xmark.circle")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filter")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
 struct TransactionsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \TransactionModel.date, order: .reverse) private var transactions: [TransactionModel]
@@ -1267,6 +1439,12 @@ struct TransactionsView: View {
     @State private var showingConnections = false
     @State private var entitlements = Entitlements.shared
     @State private var showingPaywall = false
+    @State private var searchText = ""
+    @State private var filter = TxFilter()
+    @State private var showingFilters = false
+    @State private var isSelecting = false
+    @State private var selection: Set<UUID> = []
+    @State private var showingBulkDeleteConfirm = false
 
     private func tapScanReceipt() {
         if entitlements.canScanReceipts {
@@ -1312,6 +1490,223 @@ struct TransactionsView: View {
         )
     }
 
+    private var isFiltering: Bool {
+        !searchText.trimmingCharacters(in: .whitespaces).isEmpty || filter.isActive
+    }
+
+    /// `transactions` (already sorted newest-first by the @Query) narrowed by the
+    /// active search text and filter chips. Search matches merchant, memo,
+    /// category, account, and the raw amount.
+    private var filteredTransactions: [TransactionModel] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cal = Calendar.current
+        let startBound = filter.startDate.map { cal.startOfDay(for: $0) }
+        let endBound = filter.endDate.map {
+            cal.date(bySettingHour: 23, minute: 59, second: 59, of: $0) ?? $0
+        }
+        return transactions.filter { (tx: TransactionModel) -> Bool in
+            if let aid = filter.accountID, tx.account?.id != aid { return false }
+            if let cid = filter.categoryID, tx.category?.id != cid { return false }
+            switch filter.flow {
+            case .all: break
+            case .income: if tx.amount <= 0 { return false }
+            case .expense: if tx.amount >= 0 { return false }
+            }
+            switch filter.cleared {
+            case .all: break
+            case .cleared: if !tx.cleared { return false }
+            case .uncleared: if tx.cleared { return false }
+            }
+            if filter.flaggedOnly && tx.flagColor == nil { return false }
+            let magnitude = tx.amount < 0 ? -tx.amount : tx.amount
+            if let lo = filter.minAmount, magnitude < lo { return false }
+            if let hi = filter.maxAmount, magnitude > hi { return false }
+            if let start = startBound, tx.date < start { return false }
+            if let end = endBound, tx.date > end { return false }
+            if !q.isEmpty {
+                let amountStr = NSDecimalNumber(decimal: tx.amount).stringValue
+                let haystack = [
+                    tx.merchant,
+                    tx.memo ?? "",
+                    tx.category?.name ?? "",
+                    tx.account?.name ?? "",
+                    amountStr,
+                ].joined(separator: " ").lowercased()
+                if !haystack.contains(q) { return false }
+            }
+            return true
+        }
+    }
+
+    private func clearSearchAndFilters() {
+        searchText = ""
+        filter = TxFilter()
+    }
+
+    private var resultsCountText: String {
+        let n = filteredTransactions.count
+        return "\(n) result\(n == 1 ? "" : "s")"
+    }
+
+    @ViewBuilder private var resultsBar: some View {
+        HStack {
+            Text(resultsCountText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button(action: clearSearchAndFilters) {
+                Label("Clear", systemImage: "xmark.circle.fill")
+                    .font(.caption.weight(.semibold))
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder private var transactionList: some View {
+        List {
+            if filteredTransactions.isEmpty {
+                ContentUnavailableView {
+                    Label("No Matches", systemImage: "magnifyingglass")
+                } description: {
+                    Text("No transactions match your search or filters.")
+                } actions: {
+                    Button("Clear", action: clearSearchAndFilters)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(filteredTransactions) { tx in
+                    transactionRow(tx)
+                }
+            }
+        }
+        .listRowSpacing(4)
+        .summitListBackground()
+        .animation(.smooth(duration: 0.28), value: filteredTransactions.map(\.id))
+        .refreshable {
+            await refreshTransactions()
+        }
+    }
+
+    @ViewBuilder private func transactionRow(_ tx: TransactionModel) -> some View {
+        Button {
+            if isSelecting {
+                toggleSelection(tx.id)
+            } else {
+                editing = tx
+            }
+        } label: {
+            HStack(spacing: 12) {
+                if isSelecting {
+                    Image(systemName: selection.contains(tx.id) ? "checkmark.circle.fill" : "circle")
+                        .imageScale(.large)
+                        .foregroundStyle(selection.contains(tx.id) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                }
+                TransactionRow(transaction: tx)
+            }
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                deleteTransaction(tx)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .tint(.red)
+        }
+    }
+
+    // MARK: Bulk selection
+
+    private var selectedTransactions: [TransactionModel] {
+        transactions.filter { selection.contains($0.id) }
+    }
+
+    private func toggleSelection(_ id: UUID) {
+        if selection.contains(id) {
+            selection.remove(id)
+        } else {
+            selection.insert(id)
+        }
+    }
+
+    private func endSelection() {
+        selection.removeAll()
+        isSelecting = false
+    }
+
+    private func applyCategory(_ category: CategoryModel?) {
+        for tx in selectedTransactions { tx.category = category }
+        try? context.save()
+    }
+
+    private func applyFlag(_ name: String?) {
+        for tx in selectedTransactions { tx.flagColor = name }
+        try? context.save()
+    }
+
+    private func applyCleared(_ cleared: Bool) {
+        for tx in selectedTransactions { tx.cleared = cleared }
+        try? context.save()
+    }
+
+    private func bulkDelete() {
+        for tx in selectedTransactions {
+            SoftDelete.markTransactionDeleted(tx, context: context)
+        }
+        try? context.save()
+        endSelection()
+    }
+
+    private func bulkBarButton(_ title: String, systemImage: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: systemImage).imageScale(.large)
+            Text(title).font(.caption2)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private var bulkActionBar: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Menu {
+                ForEach(categories.sorted { $0.name < $1.name }) { category in
+                    Button(category.name) { applyCategory(category) }
+                }
+                Divider()
+                Button("Uncategorize", role: .destructive) { applyCategory(nil) }
+            } label: {
+                bulkBarButton("Category", systemImage: "folder")
+            }
+
+            Menu {
+                ForEach(flagOptions, id: \.name) { option in
+                    Button { applyFlag(option.name) } label: { Label(option.label, systemImage: "flag.fill") }
+                }
+                Divider()
+                Button("Remove Flag", role: .destructive) { applyFlag(nil) }
+            } label: {
+                bulkBarButton("Flag", systemImage: "flag")
+            }
+
+            Menu {
+                Button("Mark Cleared") { applyCleared(true) }
+                Button("Mark Uncleared") { applyCleared(false) }
+            } label: {
+                bulkBarButton("Status", systemImage: "checkmark.circle")
+            }
+
+            Button(role: .destructive) {
+                showingBulkDeleteConfirm = true
+            } label: {
+                bulkBarButton("Delete", systemImage: "trash")
+            }
+        }
+        .disabled(selection.isEmpty)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .background(.bar)
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -1324,65 +1719,98 @@ struct TransactionsView: View {
                     )
                 } else {
                     VStack(spacing: 12) {
-                        TransactionsHeroCard(metrics: monthMetrics)
-                            .padding(.horizontal)
-                            .padding(.top, 8)
-
-                        List {
-                            ForEach(transactions) { tx in
-                                Button { editing = tx } label: {
-                                    TransactionRow(transaction: tx)
-                                }
-                                .buttonStyle(.plain)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        deleteTransaction(tx)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                    .tint(.red)
-                                }
+                        if isFiltering {
+                            resultsBar
+                        } else {
+                            TransactionsHeroCard(metrics: monthMetrics)
+                                .padding(.horizontal)
+                                .padding(.top, 8)
+                        }
+                        transactionList
+                    }
+                    .searchable(text: $searchText, prompt: "Search merchant, category, amount")
+                    .safeAreaInset(edge: .bottom) {
+                        if isSelecting { bulkActionBar }
+                    }
+                }
+            }
+            .navigationTitle(isSelecting
+                             ? "\(selection.count) Selected"
+                             : transactionsTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if isSelecting {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Done") { endSelection() }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button(selection.count == filteredTransactions.count ? "Deselect All" : "Select All") {
+                            if selection.count == filteredTransactions.count {
+                                selection.removeAll()
+                            } else {
+                                selection = Set(filteredTransactions.map(\.id))
                             }
                         }
-                        .listRowSpacing(4)
-                        .summitListBackground()
-                        .animation(.smooth(duration: 0.28), value: transactions.map(\.id))
-                        .refreshable {
-                            await refreshTransactions()
+                    }
+                } else {
+                    if !transactions.isEmpty {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                showingFilters = true
+                            } label: {
+                                Image(systemName: filter.isActive
+                                      ? "line.3.horizontal.decrease.circle.fill"
+                                      : "line.3.horizontal.decrease.circle")
+                            }
+                            .accessibilityIdentifier("filterTransactionsButton")
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button {
+                                showingNew = true
+                            } label: {
+                                Label("New Transaction", systemImage: "plus")
+                            }
+                            .accessibilityIdentifier("addTransactionButton")
+
+                            Button {
+                                tapScanReceipt()
+                            } label: {
+                                Label(entitlements.canScanReceipts ? "Scan Receipt…" : "Scan Receipt (Premium)…",
+                                      systemImage: entitlements.canScanReceipts ? "doc.text.viewfinder" : "lock.fill")
+                            }
+                            .accessibilityIdentifier("scanReceiptButton")
+
+                            Button {
+                                showingImporter = true
+                            } label: {
+                                Label("Import CSV", systemImage: "square.and.arrow.down")
+                            }
+                            .accessibilityIdentifier("importCSVButton")
+
+                            if !transactions.isEmpty {
+                                Divider()
+                                Button {
+                                    isSelecting = true
+                                } label: {
+                                    Label("Select", systemImage: "checkmark.circle")
+                                }
+                                .accessibilityIdentifier("selectTransactionsButton")
+                            }
+                        } label: {
+                            Image(systemName: "plus")
                         }
                     }
                 }
             }
-            .navigationTitle(transactionsTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button {
-                            showingNew = true
-                        } label: {
-                            Label("New Transaction", systemImage: "plus")
-                        }
-                        .accessibilityIdentifier("addTransactionButton")
-
-                        Button {
-                            tapScanReceipt()
-                        } label: {
-                            Label(entitlements.canScanReceipts ? "Scan Receipt…" : "Scan Receipt (Premium)…",
-                                  systemImage: entitlements.canScanReceipts ? "doc.text.viewfinder" : "lock.fill")
-                        }
-                        .accessibilityIdentifier("scanReceiptButton")
-
-                        Button {
-                            showingImporter = true
-                        } label: {
-                            Label("Import CSV", systemImage: "square.and.arrow.down")
-                        }
-                        .accessibilityIdentifier("importCSVButton")
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
+            .confirmationDialog(
+                "Delete \(selection.count) transaction\(selection.count == 1 ? "" : "s")?",
+                isPresented: $showingBulkDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) { bulkDelete() }
+                Button("Cancel", role: .cancel) {}
             }
             .sheet(isPresented: $showingNew) {
                 TransactionEditor(editing: nil)
@@ -1403,6 +1831,13 @@ struct TransactionsView: View {
             }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView()
+            }
+            .sheet(isPresented: $showingFilters) {
+                TransactionFilterSheet(
+                    filter: $filter,
+                    accounts: accounts,
+                    categories: categories
+                )
             }
             .sheet(isPresented: $showingConnections) {
                 NavigationStack {
@@ -2173,6 +2608,15 @@ struct NetWorthView: View {
                         }
                     } header: {
                         SummitSectionHeader(title: "Liabilities", systemImage: "arrow.down.circle.fill")
+                    }
+                    .summitRowBackground()
+
+                    Section {
+                        NavigationLink {
+                            DebtPayoffView()
+                        } label: {
+                            Label("Debt Payoff Plan", systemImage: "chart.line.downtrend.xyaxis")
+                        }
                     }
                     .summitRowBackground()
                 }
@@ -4653,6 +5097,61 @@ private struct ReportsHeroCard: View {
     }
 }
 
+struct SavingsRateCard: View {
+    let summary: ReportSummary
+
+    private var rate: Double? { summary.savingsRate }
+
+    private var percentText: String {
+        guard let rate else { return "—" }
+        return rate.formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    private var tint: Color {
+        guard let rate else { return .secondary }
+        if rate >= 0.20 { return .green }
+        if rate >= 0.05 { return .yellow }
+        if rate >= 0 { return .orange }
+        return .red
+    }
+
+    private var meterFraction: Double {
+        guard let rate else { return 0 }
+        return min(max(rate, 0), 1)
+    }
+
+    private var subtitle: String {
+        guard let rate else {
+            return "No income detected in this range — connect an account or add income to see your savings rate."
+        }
+        if rate < 0 {
+            return "Spending exceeded income by \(currency(-summary.net)) this period."
+        }
+        return "You kept \(currency(summary.net)) of \(currency(summary.totalIncome)) earned."
+    }
+
+    var body: some View {
+        SummitGlassCard {
+            SummitHeroHeader(
+                systemImage: "chart.line.uptrend.xyaxis",
+                label: "Savings Rate",
+                trailing: rate.map { _ in
+                    AnyView(SummitChip(text: percentText, systemImage: "percent", tint: tint))
+                }
+            )
+
+            SummitHeroAmount(caption: "of income saved", value: percentText, tint: tint)
+
+            SummitCapsuleMeter(fraction: meterFraction, tint: tint)
+
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 struct ReportsView: View {
     @Environment(BudgetEngine.self) private var engine
 
@@ -4693,8 +5192,11 @@ struct ReportsView: View {
             var income: Decimal = 0
             var spending: Decimal = 0
             for tx in transactions where cal.component(.year, from: tx.date) == y && cal.component(.month, from: tx.date) == m {
-                if tx.amount > 0 { income += tx.amount }
-                else { spending += abs(tx.amount) }
+                switch tx.cashFlowKind {
+                case .income: income += tx.amount
+                case .expense: spending += abs(tx.amount)
+                case .transfer: break
+                }
             }
             let label = monthDate.formatted(.dateTime.month(.abbreviated))
             result.append(MonthlyFlow(
@@ -4712,6 +5214,9 @@ struct ReportsView: View {
                 ReportsHeroCard(summary: summary, periodLabel: period.label)
                     .padding(.horizontal)
                     .padding(.top, 8)
+
+                SavingsRateCard(summary: summary)
+                    .padding(.horizontal)
 
                 List {
                 Section {

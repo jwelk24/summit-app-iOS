@@ -20,6 +20,8 @@ final class SmartAlertsService {
     fileprivate static let budgetThresholdKey = "alerts.budget.threshold"
     fileprivate static let unusualEnabledKey = "alerts.unusual.enabled"
     fileprivate static let unusualAmountKey = "alerts.unusual.amount"
+    fileprivate static let billEnabledKey = "alerts.bill.enabled"
+    fileprivate static let billLeadKey = "alerts.bill.leadDays"
 
     private(set) var isAuthorized: Bool = false
     private(set) var lastCheckSent: Int = 0
@@ -46,6 +48,17 @@ final class SmartAlertsService {
             return 200
         }
         set { defaults.set(NSDecimalNumber(decimal: newValue).stringValue, forKey: Self.unusualAmountKey) }
+    }
+
+    var billRemindersEnabled: Bool {
+        get { defaults.object(forKey: Self.billEnabledKey) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Self.billEnabledKey) }
+    }
+
+    /// How many days before a bill's due date to send the reminder.
+    var billReminderLeadDays: Int {
+        get { defaults.object(forKey: Self.billLeadKey) as? Int ?? 3 }
+        set { defaults.set(newValue, forKey: Self.billLeadKey) }
     }
 
     private init() {}
@@ -76,16 +89,22 @@ final class SmartAlertsService {
     /// from anywhere; gates itself on entitlement + auth + per-toggle config.
     @discardableResult
     func runChecks(context: ModelContext, year: Int, month: Int) async -> Int {
-        guard Entitlements.shared.canUseSmartAlerts else { return 0 }
         await refreshAuthorization()
         guard isAuthorized else { return 0 }
 
         var sent = 0
-        if budgetAlertsEnabled {
-            sent += await runBudgetChecks(context: context, year: year, month: month)
+        // Bill reminders are available on every tier.
+        if billRemindersEnabled {
+            sent += await runBillReminderChecks(context: context)
         }
-        if unusualAlertsEnabled {
-            sent += await runUnusualChargeChecks(context: context)
+        // Budget-threshold and unusual-charge alerts are Premium.
+        if Entitlements.shared.canUseSmartAlerts {
+            if budgetAlertsEnabled {
+                sent += await runBudgetChecks(context: context, year: year, month: month)
+            }
+            if unusualAlertsEnabled {
+                sent += await runUnusualChargeChecks(context: context)
+            }
         }
         lastCheckSent = sent
         return sent
@@ -167,6 +186,71 @@ final class SmartAlertsService {
         return sent
     }
 
+    // MARK: Bill due-date reminders
+
+    /// Schedules a calendar-based reminder ahead of each upcoming bill /
+    /// subscription due date. Uses the scheduled item's `nextDate`; paychecks
+    /// (income) are skipped. Re-running replaces any existing request with the
+    /// same identifier, so it's safe to call after every sync.
+    private func runBillReminderChecks(context: ModelContext) async -> Int {
+        let cal = Calendar.current
+        let now = Date()
+        let today = cal.startOfDay(for: now)
+        // Only look a couple of cycles out so we don't queue dozens of reminders.
+        guard let horizon = cal.date(byAdding: .day, value: 45, to: today) else { return 0 }
+        guard let items = try? context.fetch(FetchDescriptor<ScheduledItemModel>()) else { return 0 }
+
+        let lead = max(0, billReminderLeadDays)
+        var sent = 0
+        for item in items {
+            guard item.kind == .bill || item.kind == .subscription else { continue }
+            let due = item.nextDate
+            let dueStart = cal.startOfDay(for: due)
+            guard dueStart >= today, dueStart <= horizon else { continue }
+
+            // Fire `lead` days before the due date at 9am local.
+            let rawFire = cal.date(byAdding: .day, value: -lead, to: dueStart) ?? dueStart
+            var fireComps = cal.dateComponents([.year, .month, .day], from: rawFire)
+            fireComps.hour = 9
+            fireComps.minute = 0
+            let fireDate = cal.date(from: fireComps) ?? rawFire
+
+            let amount = item.amount < 0 ? -item.amount : item.amount
+            let identifier = "alert.bill.\(item.id.uuidString).\(dueDateKey(dueStart))"
+            let title = "Upcoming bill"
+            let body = "\(item.name) — \(currencyString(amount)) due \(relativeDuePhrase(dueStart, from: today))."
+
+            if fireDate > now {
+                await scheduleCalendarNotification(
+                    title: title, body: body, identifier: identifier, dateComponents: fireComps
+                )
+                sent += 1
+            } else {
+                // Already inside the lead window — remind once, soon.
+                guard !defaults.bool(forKey: identifier) else { continue }
+                await scheduleNotification(title: title, body: body, identifier: identifier)
+                defaults.set(true, forKey: identifier)
+                sent += 1
+            }
+        }
+        return sent
+    }
+
+    private func dueDateKey(_ date: Date) -> String {
+        let comps = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return "\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
+    }
+
+    private func relativeDuePhrase(_ due: Date, from today: Date) -> String {
+        let days = Calendar.current.dateComponents([.day], from: today, to: due).day ?? 0
+        switch days {
+        case ..<0: return "overdue"
+        case 0: return "today"
+        case 1: return "tomorrow"
+        default: return "in \(days) days"
+        }
+    }
+
     // MARK: Test + helpers
 
     func scheduleTestNotification() async {
@@ -183,6 +267,18 @@ final class SmartAlertsService {
         content.body = body
         content.sound = .default
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        try? await center.add(request)
+    }
+
+    private func scheduleCalendarNotification(
+        title: String, body: String, identifier: String, dateComponents: DateComponents
+    ) async {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         try? await center.add(request)
     }
@@ -205,17 +301,7 @@ struct SmartAlertsView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if !entitlements.canUseSmartAlerts {
-                    LockedFeatureCard(feature: .smartAlerts) {
-                        showingPaywall = true
-                    }
-                    .frame(maxHeight: .infinity)
-                    .summitListBackground()
-                } else {
-                    formContent
-                }
-            }
+            formContent
             .navigationTitle("Smart Alerts")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -231,11 +317,58 @@ struct SmartAlertsView: View {
     private var formContent: some View {
         Form {
             permissionSection
-            budgetSection
-            unusualSection
+            billSection
+            if entitlements.canUseSmartAlerts {
+                budgetSection
+                unusualSection
+            } else {
+                premiumUpsellSection
+            }
             testSection
         }
         .summitListBackground()
+    }
+
+    private var premiumUpsellSection: some View {
+        Section {
+            Button {
+                showingPaywall = true
+            } label: {
+                Label("Unlock budget & unusual-charge alerts", systemImage: "lock")
+            }
+            .accessibilityIdentifier("alertsUpgradeButton")
+        } header: {
+            Text("More Alerts")
+        } footer: {
+            Text("Premium adds category-overspend warnings and large / new-merchant charge alerts.")
+        }
+    }
+
+    private var billSection: some View {
+        Section {
+            Toggle("Remind me before bills are due", isOn: Binding(
+                get: { service.billRemindersEnabled },
+                set: { service.billRemindersEnabled = $0 }
+            ))
+            .accessibilityIdentifier("billRemindersToggle")
+
+            if service.billRemindersEnabled {
+                Picker("Remind me", selection: Binding(
+                    get: { service.billReminderLeadDays },
+                    set: { service.billReminderLeadDays = $0 }
+                )) {
+                    Text("Same day").tag(0)
+                    Text("1 day before").tag(1)
+                    Text("3 days before").tag(3)
+                    Text("5 days before").tag(5)
+                    Text("1 week before").tag(7)
+                }
+            }
+        } header: {
+            Text("Bill Reminders")
+        } footer: {
+            Text("Get a reminder ahead of upcoming bills and subscriptions, based on their detected due dates. Reminders refresh after each sync.")
+        }
     }
 
     private var permissionSection: some View {
