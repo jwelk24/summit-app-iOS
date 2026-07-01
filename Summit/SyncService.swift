@@ -361,13 +361,6 @@ final class SyncService {
         }
 
         if canWrite {
-            // Merge duplicate accounts (fresh-install seeds that collided with the
-            // household's existing accounts) before pushing, so survivors push and
-            // the losers' tombstones propagate via pushDeletions below.
-            do { try deduplicateAccounts(context: context) }
-            catch { perTableErrors.append("dedupe accounts: \(error.localizedDescription)") }
-            do { try deduplicateCategoriesAndGroups(context: context) }
-            catch { perTableErrors.append("dedupe categories: \(error.localizedDescription)") }
             await runPush("accounts") { try await pushAccounts(context: context, householdID: household.id) }
             await runPush("category_groups") { try await pushCategoryGroups(context: context, householdID: household.id) }
             await runPush("categories") { try await pushCategories(context: context, householdID: household.id) }
