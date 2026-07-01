@@ -789,11 +789,33 @@ final class SyncService {
 
     private func pushScheduledItems(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<ScheduledItemModel>())
-        let rows = local.map { s in
-            ScheduledItemRow(id: s.id, household_id: householdID, account_id: s.account?.id, category_id: s.category?.id,
-                             kind: s.kind.rawValue, name: s.name, amount: s.amount,
-                             next_date: s.nextDate, interval_days: s.intervalDays, deleted_at: nil)
+        // Guard against dangling references to deleted accounts/categories: reading
+        // a deleted model's `id` crashes ("backing data could no longer be found").
+        // persistentModelID is safe metadata, so compare against the live objects
+        // and repair any stale link to nil.
+        let liveCategoryIDs = Set(try context.fetch(FetchDescriptor<CategoryModel>()).map(\.persistentModelID))
+        let liveAccountIDs = Set(try context.fetch(FetchDescriptor<AccountModel>()).map(\.persistentModelID))
+        var repaired = false
+        let rows: [ScheduledItemRow] = local.map { s in
+            let categoryID: UUID?
+            if let cat = s.category, liveCategoryIDs.contains(cat.persistentModelID) {
+                categoryID = cat.id
+            } else {
+                if s.category != nil { s.category = nil; repaired = true }
+                categoryID = nil
+            }
+            let accountID: UUID?
+            if let acc = s.account, liveAccountIDs.contains(acc.persistentModelID) {
+                accountID = acc.id
+            } else {
+                if s.account != nil { s.account = nil; repaired = true }
+                accountID = nil
+            }
+            return ScheduledItemRow(id: s.id, household_id: householdID, account_id: accountID, category_id: categoryID,
+                                    kind: s.kind.rawValue, name: s.name, amount: s.amount,
+                                    next_date: s.nextDate, interval_days: s.intervalDays, deleted_at: nil)
         }
+        if repaired { try? context.save() }
         guard !rows.isEmpty else { return 0 }
         try await SupabaseService.shared.client.from("scheduled_items").upsert(rows, onConflict: "id").execute()
         return rows.count

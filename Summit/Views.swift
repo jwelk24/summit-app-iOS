@@ -2410,9 +2410,21 @@ struct NetWorthView: View {
         let pending: [PlaidSyncService.PendingPlaidAccount]
     }
 
+    /// Collapses duplicate accounts (fresh-install seed collisions) for display
+    /// by identity (name + type), keeping the most-used copy and summing on the
+    /// deduped set so totals aren't inflated. Non-destructive: the store is
+    /// untouched (runtime deletion crashed on launch — see SyncService history),
+    /// this only prevents dupes from appearing.
+    private static func dedupedByIdentity(_ accounts: [AccountModel]) -> [AccountModel] {
+        let groups = Dictionary(grouping: accounts) { "\($0.name)|\($0.type.rawValue)" }
+        return groups.values
+            .compactMap { dupes in dupes.max { $0.transactions.count < $1.transactions.count } }
+            .sorted { $0.name < $1.name }
+    }
+
     private var filteredAccounts: [AccountModel] {
-        guard let ids = selectedAccountIDs else { return accounts }
-        return accounts.filter { ids.contains($0.id) }
+        let base = selectedAccountIDs.map { ids in accounts.filter { ids.contains($0.id) } } ?? accounts
+        return Self.dedupedByIdentity(base)
     }
     private var filteredAssets: [AccountModel] {
         filteredAccounts.filter { $0.type.isAsset }
@@ -2425,10 +2437,10 @@ struct NetWorthView: View {
     private var netWorth: Decimal { totalAssets - totalLiabilities }
 
     private var allAssets: [AccountModel] {
-        accounts.filter { $0.type.isAsset }.sorted { $0.name < $1.name }
+        Self.dedupedByIdentity(accounts.filter { $0.type.isAsset })
     }
     private var allLiabilities: [AccountModel] {
-        accounts.filter { !$0.type.isAsset }.sorted { $0.name < $1.name }
+        Self.dedupedByIdentity(accounts.filter { !$0.type.isAsset })
     }
 
     private var filterLabel: String {

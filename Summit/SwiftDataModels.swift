@@ -15,6 +15,9 @@ final class AccountModel {
     @Relationship(deleteRule: .cascade, inverse: \BalanceSnapshotModel.account)
     var snapshots: [BalanceSnapshotModel]
 
+    @Relationship(deleteRule: .nullify, inverse: \ScheduledItemModel.account)
+    var scheduledItems: [ScheduledItemModel]
+
     init(id: UUID = UUID(), name: String, type: AccountType, balance: Decimal = 0, currencyCode: String = "USD") {
         self.id = id
         self.name = name
@@ -23,6 +26,7 @@ final class AccountModel {
         self.currencyCode = currencyCode
         self.transactions = []
         self.snapshots = []
+        self.scheduledItems = []
     }
 }
 
@@ -64,6 +68,9 @@ final class CategoryModel {
     @Relationship(deleteRule: .nullify, inverse: \TransactionSplitModel.category)
     var splits: [TransactionSplitModel]
 
+    @Relationship(deleteRule: .nullify, inverse: \ScheduledItemModel.category)
+    var scheduledItems: [ScheduledItemModel]
+
     init(id: UUID = UUID(), name: String, sort: Int, group: CategoryGroupModel? = nil, linkedAccount: AccountModel? = nil) {
         self.id = id
         self.name = name
@@ -74,6 +81,7 @@ final class CategoryModel {
         self.goals = []
         self.allocations = []
         self.splits = []
+        self.scheduledItems = []
     }
 }
 
