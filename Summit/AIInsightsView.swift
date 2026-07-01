@@ -25,6 +25,8 @@ struct AIInsightsView: View {
     @State private var answer: AIInsightsService.MoneyAnswer?
     @State private var isAsking = false
 
+    @State private var coachInsights: [CoachInsight] = []
+
     var body: some View {
         NavigationStack {
             Group {
@@ -35,6 +37,7 @@ struct AIInsightsView: View {
                             .padding(.top, 8)
 
                         List {
+                            coachSection
                             switch availability {
                             case .available:
                                 askSection
@@ -57,6 +60,7 @@ struct AIInsightsView: View {
             }
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
+            .task { loadCoach() }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView()
             }
@@ -69,6 +73,50 @@ struct AIInsightsView: View {
     }
 
     // MARK: Sections
+
+    private var coachSection: some View {
+        Section {
+            if coachInsights.isEmpty {
+                Label("You're on track — nothing notable right now.", systemImage: "checkmark.seal")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(coachInsights) { insight in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: insight.icon)
+                            .foregroundStyle(coachColor(insight.sentiment))
+                            .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(insight.title).font(.subheadline.weight(.medium))
+                            Text(insight.detail).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        } header: {
+            SummitSectionHeader(title: "Your Money Coach", systemImage: "figure.mind.and.body")
+        } footer: {
+            Text("Proactive insights, computed privately on your device.")
+        }
+        .summitRowBackground()
+    }
+
+    private func coachColor(_ sentiment: CoachInsight.Sentiment) -> Color {
+        switch sentiment {
+        case .positive: return .green
+        case .negative: return .red
+        case .warning: return .orange
+        case .neutral: return .secondary
+        }
+    }
+
+    private func loadCoach() {
+        coachInsights = FinancialCoach.insights(
+            context: context,
+            cushion: SmartAlertsService.shared.lowBalanceThreshold
+        )
+    }
 
     private var askSection: some View {
         Section {
