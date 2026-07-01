@@ -22,6 +22,9 @@ final class SmartAlertsService {
     fileprivate static let unusualAmountKey = "alerts.unusual.amount"
     fileprivate static let billEnabledKey = "alerts.bill.enabled"
     fileprivate static let billLeadKey = "alerts.bill.leadDays"
+    fileprivate static let lowBalanceEnabledKey = "alerts.lowbalance.enabled"
+    fileprivate static let lowBalanceThresholdKey = "alerts.lowbalance.threshold"
+    fileprivate static let priceChangeEnabledKey = "alerts.pricechange.enabled"
 
     private(set) var isAuthorized: Bool = false
     private(set) var lastCheckSent: Int = 0
@@ -61,6 +64,25 @@ final class SmartAlertsService {
         set { defaults.set(newValue, forKey: Self.billLeadKey) }
     }
 
+    var lowBalanceEnabled: Bool {
+        get { defaults.object(forKey: Self.lowBalanceEnabledKey) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Self.lowBalanceEnabledKey) }
+    }
+
+    /// The spendable-balance cushion; a projected dip below this triggers a warning.
+    var lowBalanceThreshold: Decimal {
+        get {
+            if let s = defaults.string(forKey: Self.lowBalanceThresholdKey), let d = Decimal(string: s) { return d }
+            return 100
+        }
+        set { defaults.set(NSDecimalNumber(decimal: newValue).stringValue, forKey: Self.lowBalanceThresholdKey) }
+    }
+
+    var priceChangeAlertsEnabled: Bool {
+        get { defaults.object(forKey: Self.priceChangeEnabledKey) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Self.priceChangeEnabledKey) }
+    }
+
     private init() {}
 
     // MARK: Permission
@@ -93,9 +115,12 @@ final class SmartAlertsService {
         guard isAuthorized else { return 0 }
 
         var sent = 0
-        // Bill reminders are available on every tier.
+        // Bill reminders and the low-balance warning are available on every tier.
         if billRemindersEnabled {
             sent += await runBillReminderChecks(context: context)
+        }
+        if lowBalanceEnabled {
+            sent += await runLowBalanceCheck(context: context)
         }
         // Budget-threshold and unusual-charge alerts are Premium.
         if Entitlements.shared.canUseSmartAlerts {
@@ -104,6 +129,9 @@ final class SmartAlertsService {
             }
             if unusualAlertsEnabled {
                 sent += await runUnusualChargeChecks(context: context)
+            }
+            if priceChangeAlertsEnabled {
+                sent += await runPriceChangeChecks(context: context)
             }
         }
         lastCheckSent = sent
@@ -251,6 +279,69 @@ final class SmartAlertsService {
         }
     }
 
+    // MARK: Subscription price changes
+
+    /// Flags recurring charges whose amount recently changed. Deduped per
+    /// merchant + new amount, so each price change alerts once.
+    private func runPriceChangeChecks(context: ModelContext) async -> Int {
+        guard let txns = try? context.fetch(FetchDescriptor<TransactionModel>()) else { return 0 }
+        let changes = SubscriptionDetector.detectPriceChanges(transactions: txns)
+        var sent = 0
+        for change in changes {
+            let canonical = SubscriptionDetector.canonicalMerchant(change.merchant)
+            let newKey = NSDecimalNumber(decimal: change.newAmount).stringValue
+            let identifier = "alert.pricechange.\(canonical).\(newKey)"
+            guard !defaults.bool(forKey: identifier) else { continue }
+
+            let title = change.isIncrease ? "Subscription price increase" : "Subscription price drop"
+            let verb = change.isIncrease ? "went up" : "dropped"
+            let body = "\(change.merchant) \(verb) from \(currencyString(change.oldAmount)) to \(currencyString(change.newAmount))."
+            await scheduleNotification(title: title, body: body, identifier: identifier)
+            defaults.set(true, forKey: identifier)
+            sent += 1
+        }
+        return sent
+    }
+
+    // MARK: Low-balance projection
+
+    /// Projects checking + savings over the next 30 days using scheduled bills
+    /// and income, and warns if the balance is set to dip below the cushion.
+    /// Deduped to at most one warning per calendar day.
+    private func runLowBalanceCheck(context: ModelContext) async -> Int {
+        guard let accounts = try? context.fetch(FetchDescriptor<AccountModel>()) else { return 0 }
+        guard accounts.contains(where: { $0.type == .checking || $0.type == .savings }) else { return 0 }
+        let scheduled = (try? context.fetch(FetchDescriptor<ScheduledItemModel>())) ?? []
+
+        let start = CashFlowForecaster.spendableBalance(accounts: accounts)
+        let forecaster = CashFlowForecaster(startingBalance: start, scheduled: scheduled, horizonDays: 30)
+        let result = forecaster.project()
+
+        let threshold = lowBalanceThreshold
+        guard let dip = result.points.first(where: { $0.balance < threshold }) else { return 0 }
+
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let todayComps = cal.dateComponents([.year, .month, .day], from: today)
+        let identifier = "alert.lowbalance.\(todayComps.year ?? 0)-\(todayComps.month ?? 0)-\(todayComps.day ?? 0)"
+        guard !defaults.bool(forKey: identifier) else { return 0 }
+
+        let whenPhrase: String
+        if cal.isDate(dip.date, inSameDayAs: today) {
+            whenPhrase = "right now"
+        } else {
+            let days = cal.dateComponents([.day], from: today, to: dip.date).day ?? 0
+            let dateLabel = dip.date.formatted(.dateTime.month(.abbreviated).day())
+            whenPhrase = days == 1 ? "tomorrow (\(dateLabel))" : "in \(days) days (\(dateLabel))"
+        }
+
+        let title = "Low balance ahead"
+        let body = "Your spendable balance is projected to reach \(currencyString(dip.balance)) \(whenPhrase), below your \(currencyString(threshold)) cushion."
+        await scheduleNotification(title: title, body: body, identifier: identifier)
+        defaults.set(true, forKey: identifier)
+        return 1
+    }
+
     // MARK: Test + helpers
 
     func scheduleTestNotification() async {
@@ -318,15 +409,60 @@ struct SmartAlertsView: View {
         Form {
             permissionSection
             billSection
+            lowBalanceSection
             if entitlements.canUseSmartAlerts {
                 budgetSection
                 unusualSection
+                priceChangeSection
             } else {
                 premiumUpsellSection
             }
             testSection
         }
         .summitListBackground()
+    }
+
+    private var lowBalanceSection: some View {
+        Section {
+            Toggle("Warn me before my balance runs low", isOn: Binding(
+                get: { service.lowBalanceEnabled },
+                set: { service.lowBalanceEnabled = $0 }
+            ))
+            .accessibilityIdentifier("lowBalanceToggle")
+
+            if service.lowBalanceEnabled {
+                HStack {
+                    Text("Cushion")
+                    Spacer()
+                    TextField("Amount", value: Binding(
+                        get: { service.lowBalanceThreshold },
+                        set: { service.lowBalanceThreshold = $0 }
+                    ), format: .currency(code: "USD"))
+                    .multilineTextAlignment(.trailing)
+                    #if canImport(UIKit)
+                    .keyboardType(.decimalPad)
+                    #endif
+                }
+            }
+        } header: {
+            Text("Low-Balance Warning")
+        } footer: {
+            Text("Summit projects your checking and savings over the next 30 days from your scheduled bills and income, and warns you if it's set to dip below your cushion.")
+        }
+    }
+
+    private var priceChangeSection: some View {
+        Section {
+            Toggle("Alert when a subscription price changes", isOn: Binding(
+                get: { service.priceChangeAlertsEnabled },
+                set: { service.priceChangeAlertsEnabled = $0 }
+            ))
+            .accessibilityIdentifier("priceChangeToggle")
+        } header: {
+            Text("Subscription Price Watch")
+        } footer: {
+            Text("Summit watches your recurring charges and flags when one goes up or down — like a streaming service raising its price.")
+        }
     }
 
     private var premiumUpsellSection: some View {

@@ -32,6 +32,31 @@ struct DetectedSubscription: Identifiable, Hashable {
     }
 }
 
+/// A recurring charge whose amount recently stepped up or down after a run of
+/// stable charges — e.g. a streaming service raising its price.
+struct DetectedPriceChange: Identifiable, Hashable {
+    let id: UUID
+    let merchant: String
+    let cadence: SubscriptionCadence
+    /// Established (previous) amount, absolute.
+    let oldAmount: Decimal
+    /// Latest charge amount, absolute.
+    let newAmount: Decimal
+    let changeDate: Date
+
+    var delta: Decimal { newAmount - oldAmount }
+    var isIncrease: Bool { newAmount > oldAmount }
+
+    var percentChange: Double {
+        let old = NSDecimalNumber(decimal: oldAmount).doubleValue
+        guard old != 0 else { return 0 }
+        return (NSDecimalNumber(decimal: newAmount).doubleValue - old) / old * 100
+    }
+
+    static func == (lhs: DetectedPriceChange, rhs: DetectedPriceChange) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
 enum SubscriptionCadence: String, CaseIterable {
     case weekly, biweekly, monthly, quarterly, yearly
 
@@ -139,6 +164,75 @@ enum SubscriptionDetector {
             results.append(detected)
         }
         return results.sorted { $0.totalSpend > $1.totalSpend }
+    }
+
+    /// Detects recurring charges whose amount recently changed: a run of stable
+    /// charges (±10%) followed by a latest charge that differs by >5% and ≥$1.
+    /// Deliberately independent of `detect` (whose ±15% stability gate would
+    /// hide a real price hike). Reports both increases and drops.
+    static func detectPriceChanges(
+        transactions: [TransactionModel],
+        minOccurrences: Int = 3,
+        now: Date = .now
+    ) -> [DetectedPriceChange] {
+        let ignored = Set((UserDefaults.standard.array(forKey: ignoredMerchantsKey) as? [String]) ?? [])
+        let cal = Calendar.current
+
+        let outflows = transactions.filter {
+            !$0.merchant.trimmingCharacters(in: .whitespaces).isEmpty && $0.amount < 0
+        }
+        let grouped = Dictionary(grouping: outflows) { canonicalMerchant($0.merchant) }
+
+        var results: [DetectedPriceChange] = []
+        for (canonical, raw) in grouped {
+            guard !ignored.contains(canonical), raw.count >= minOccurrences else { continue }
+            let sorted = raw.sorted { $0.date < $1.date }
+
+            // Must look recurring.
+            var intervals: [Int] = []
+            for i in 1..<sorted.count {
+                let d = cal.dateComponents([.day], from: sorted[i - 1].date, to: sorted[i].date).day ?? 0
+                if d > 0 { intervals.append(d) }
+            }
+            guard !intervals.isEmpty else { continue }
+            let medianInterval = median(intervals.map(Double.init))
+            guard let cadence = SubscriptionCadence.allCases.first(where: {
+                abs(Double($0.intervalDays) - medianInterval) <= Double($0.matchTolerance)
+            }) else { continue }
+
+            guard let latest = sorted.last else { continue }
+            let staleCutoff = cal.date(byAdding: .day, value: cadence.intervalDays * 2, to: latest.date) ?? latest.date
+            guard staleCutoff > now else { continue }
+
+            // Need a stable prior history to compare the latest charge against.
+            let previous = Array(sorted.dropLast())
+            guard previous.count >= 2 else { continue }
+            let prevAbs = previous.map { absDecimal($0.amount) }
+            let prevTypical = medianDecimal(prevAbs)
+            guard prevTypical > 0 else { continue }
+
+            let stable = prevAbs.allSatisfy { amount in
+                let diff = absDecimal(amount - prevTypical)
+                return NSDecimalNumber(decimal: diff).doubleValue / NSDecimalNumber(decimal: prevTypical).doubleValue <= 0.10
+            }
+            guard stable else { continue }
+
+            let latestAbs = absDecimal(latest.amount)
+            let diff = absDecimal(latestAbs - prevTypical)
+            let ratio = NSDecimalNumber(decimal: diff).doubleValue / NSDecimalNumber(decimal: prevTypical).doubleValue
+            guard ratio > 0.05, diff >= 1 else { continue }
+
+            let display = mostCommonDisplayName(sorted.map(\.merchant)) ?? canonical
+            results.append(DetectedPriceChange(
+                id: UUID(),
+                merchant: display,
+                cadence: cadence,
+                oldAmount: prevTypical,
+                newAmount: latestAbs,
+                changeDate: latest.date
+            ))
+        }
+        return results.sorted { $0.changeDate > $1.changeDate }
     }
 
     /// Manage the user's list of ignored merchants.
@@ -268,6 +362,7 @@ struct SubscriptionsView: View {
     @State private var showingPaywall = false
     @State private var detected: [DetectedSubscription] = []
     @State private var detectedIncome: [DetectedSubscription] = []
+    @State private var priceChanges: [DetectedPriceChange] = []
     @State private var addedNotice: String?
     @State private var showingIgnored = false
 
@@ -309,7 +404,7 @@ struct SubscriptionsView: View {
 
     @ViewBuilder
     private var listContent: some View {
-        if detected.isEmpty && detectedIncome.isEmpty {
+        if detected.isEmpty && detectedIncome.isEmpty && priceChanges.isEmpty {
             ContentUnavailableView {
                 Label("Nothing Recurring Detected", systemImage: "repeat.circle")
             } description: {
@@ -334,6 +429,19 @@ struct SubscriptionsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption)
+                }
+
+                if !priceChanges.isEmpty {
+                    Section {
+                        ForEach(priceChanges) { change in
+                            PriceChangeRow(change: change)
+                        }
+                    } header: {
+                        Text("Price Changes")
+                    } footer: {
+                        Text("Recurring charges whose amount recently changed.")
+                    }
+                    .summitRowBackground()
                 }
 
                 if !detectedIncome.isEmpty {
@@ -395,6 +503,7 @@ struct SubscriptionsView: View {
     private func rescan() {
         detected = SubscriptionDetector.detect(transactions: transactions)
         detectedIncome = SubscriptionDetector.detectIncome(transactions: transactions)
+        priceChanges = SubscriptionDetector.detectPriceChanges(transactions: transactions)
         addedNotice = nil
     }
 
@@ -490,6 +599,43 @@ private struct SubscriptionRow: View {
 
     private var totalLabel: String {
         "\(currencyString(sub.totalSpend)) total"
+    }
+
+    private func currencyString(_ d: Decimal) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        return f.string(from: NSDecimalNumber(decimal: d)) ?? "$0"
+    }
+}
+
+private struct PriceChangeRow: View {
+    let change: DetectedPriceChange
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: change.isIncrease ? "arrow.up.right.circle.fill" : "arrow.down.right.circle.fill")
+                .foregroundStyle(change.isIncrease ? AnyShapeStyle(.red) : AnyShapeStyle(.green))
+                .imageScale(.large)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(change.merchant)
+                    .font(.body.weight(.medium))
+                Text("\(currencyString(change.oldAmount)) → \(currencyString(change.newAmount)) · \(change.changeDate.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Spacer()
+            Text(deltaLabel)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(change.isIncrease ? AnyShapeStyle(.red) : AnyShapeStyle(.green))
+                .monospacedDigit()
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var deltaLabel: String {
+        let magnitude = change.delta < 0 ? -change.delta : change.delta
+        return "\(change.isIncrease ? "+" : "−")\(currencyString(magnitude))"
     }
 
     private func currencyString(_ d: Decimal) -> String {
