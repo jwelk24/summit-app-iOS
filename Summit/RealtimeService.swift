@@ -28,6 +28,7 @@ final class RealtimeService {
     private init() {}
 
     func start(context: ModelContext, householdID: UUID) async {
+        guard !PrivacyMode.localOnly else { return }
         if currentHouseholdID == householdID, isConnected { return }
         await stop()
         self.context = context

@@ -20,6 +20,7 @@ struct BudgetView: View {
     @State private var showingSync = false
     @State private var showingRules = false
     @State private var showingAlerts = false
+    @State private var showingPrivacy = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -276,6 +277,13 @@ struct BudgetView: View {
                         } label: {
                             Label("Sync & Account", systemImage: "icloud")
                         }
+
+                        Button {
+                            showingPrivacy = true
+                        } label: {
+                            Label("Privacy & Data", systemImage: "lock.shield")
+                        }
+                        .accessibilityIdentifier("privacyButton")
                     } label: {
                         Label("Actions", systemImage: "ellipsis.circle")
                     }
@@ -303,6 +311,9 @@ struct BudgetView: View {
             }
             .sheet(isPresented: $showingSync) {
                 NavigationStack { AuthView() }
+            }
+            .sheet(isPresented: $showingPrivacy) {
+                PrivacyView()
             }
             .accessibilityIdentifier("budgetScreen")
         }

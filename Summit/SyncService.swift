@@ -324,12 +324,35 @@ final class SyncService {
         }
     }
 
+    /// Hard-deletes every row belonging to the household from the cloud. Ordered
+    /// children-first to respect foreign keys. Local (on-device) data is untouched;
+    /// callers should switch to local-only mode afterward so it isn't re-pushed.
+    func deleteAllCloudData(householdID: UUID) async throws {
+        let hid = householdID.uuidString.lowercased()
+        let tables = [
+            "transaction_splits", "plaid_transaction_links", "transactions",
+            "plaid_account_links", "balance_snapshots",
+            "budget_allocations", "budget_months",
+            "scheduled_items", "goals",
+            "investment_transactions", "investment_holdings", "liabilities",
+            "categories", "category_groups", "accounts",
+        ]
+        for table in tables {
+            try await SupabaseService.shared.client
+                .from(table).delete()
+                .eq("household_id", value: hid)
+                .execute()
+        }
+    }
+
     func syncIfDue(context: ModelContext) async {
         if let last = lastSyncedAt, Date().timeIntervalSince(last) < throttleInterval { return }
         await syncAccounts(context: context)
     }
 
     func syncAccounts(context: ModelContext) async {
+        // Local-only (privacy) mode: never touch the cloud.
+        guard !PrivacyMode.localOnly else { return }
         guard Premium.isActive else { return }
         guard SupabaseService.shared.isAuthenticated else {
             lastError = SyncError.notAuthenticated.localizedDescription
