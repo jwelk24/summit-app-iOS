@@ -21,6 +21,10 @@ struct AIInsightsView: View {
     @State private var entitlements = Entitlements.shared
     @State private var showingPaywall = false
 
+    @State private var question = ""
+    @State private var answer: AIInsightsService.MoneyAnswer?
+    @State private var isAsking = false
+
     var body: some View {
         NavigationStack {
             Group {
@@ -33,6 +37,7 @@ struct AIInsightsView: View {
                         List {
                             switch availability {
                             case .available:
+                                askSection
                                 digestSection
                                 smartCategorizeSection
                                 aboutSection
@@ -64,6 +69,82 @@ struct AIInsightsView: View {
     }
 
     // MARK: Sections
+
+    private var askSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .foregroundStyle(.tint)
+                TextField("Ask about your money…", text: $question)
+                    .submitLabel(.search)
+                    .onSubmit { Task { await ask() } }
+                    .accessibilityIdentifier("askMoneyField")
+                if !question.isEmpty {
+                    Button {
+                        Task { await ask() }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                    }
+                    .disabled(isAsking)
+                }
+            }
+
+            if isAsking {
+                HStack {
+                    ProgressView()
+                    Text("Thinking…").foregroundStyle(.secondary)
+                }
+            } else if let answer {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(answer.text)
+                        .font(.subheadline)
+                    if !answer.matched.isEmpty {
+                        Divider()
+                        ForEach(Array(answer.matched.prefix(4))) { tx in
+                            HStack {
+                                Text(tx.merchant)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(tx.amount.formatted(.currency(code: tx.account?.currencyCode ?? "USD")))
+                                    .monospacedDigit()
+                                    .foregroundStyle(tx.amount < 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(.green))
+                            }
+                            .font(.caption)
+                        }
+                        if answer.matched.count > 4 {
+                            Text("+ \(answer.matched.count - 4) more")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    exampleButton("How much did I spend on coffee last month?")
+                    exampleButton("What did I spend this month?")
+                    exampleButton("How much did I make this year?")
+                }
+            }
+        } header: {
+            SummitSectionHeader(title: "Ask Your Money", systemImage: "sparkle.magnifyingglass")
+        } footer: {
+            Text("Answered on-device from your own data — never sent to a server.")
+        }
+        .summitRowBackground()
+    }
+
+    private func exampleButton(_ text: String) -> some View {
+        Button {
+            question = text
+            Task { await ask() }
+        } label: {
+            Label(text, systemImage: "text.bubble")
+                .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+    }
 
     private var digestSection: some View {
         Section {
@@ -187,6 +268,24 @@ struct AIInsightsView: View {
     }
 
     // MARK: Actions
+
+    private func ask() async {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        isAsking = true
+        defer { isAsking = false }
+        do {
+            let service = AIInsightsService(context: context)
+            let result = try await service.answer(to: q)
+            if let result {
+                answer = result
+            } else {
+                errorMessage = "I couldn't understand that question. Try rephrasing it."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 
     private func generateDigest() async {
         isGeneratingDigest = true
