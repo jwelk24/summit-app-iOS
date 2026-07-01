@@ -167,6 +167,9 @@ struct BudgetView: View {
                 }
                 .padding(.horizontal)
 
+                SafeToSpendCard()
+                    .padding(.horizontal)
+
                 BudgetHeroCard(
                     monthLabel: currentMonthLabel,
                     available: BudgetEngine.availableToBudget(

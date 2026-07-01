@@ -188,6 +188,91 @@ struct UpcomingBillsWidget: Widget {
     }
 }
 
+// MARK: - Safe to Spend
+
+struct SafeToSpendWidgetView: View {
+    let entry: SummitSnapshotEntry
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        let snap = entry.snapshot
+        let formatter = currencyFormatter(snap.currencyCode)
+        let today = snap.safeToSpendToday
+        let todayStr = today.map { formatter.string(from: NSNumber(value: $0)) ?? "$0" } ?? "—"
+        let perDayStr = snap.safePerDay.map { formatter.string(from: NSNumber(value: $0)) ?? "$0" }
+        let tint: Color = (today ?? 0) <= 0 ? .orange : .green
+
+        switch family {
+        case .accessoryInline:
+            Text("Safe: \(todayStr)")
+        case .accessoryCircular:
+            VStack(spacing: 1) {
+                Image(systemName: "dollarsign.circle.fill").font(.caption)
+                Text(todayStr).font(.caption2.weight(.semibold)).minimumScaleFactor(0.5)
+            }
+        case .accessoryRectangular:
+            VStack(alignment: .leading, spacing: 1) {
+                Label("Safe to Spend", systemImage: "dollarsign.circle.fill").font(.caption2)
+                Text(todayStr).font(.headline)
+                if let perDayStr { Text("\(perDayStr)/day").font(.caption2).foregroundStyle(.secondary) }
+            }
+        default:
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Safe to Spend", systemImage: "dollarsign.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(todayStr)
+                    .font(family == .systemSmall ? .title2 : .largeTitle)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(today == nil ? Color.secondary : tint)
+                    .minimumScaleFactor(0.6)
+                Text("to spend today")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if let perDayStr {
+                    HStack {
+                        Text("\(perDayStr)/day")
+                        Spacer()
+                        if family != .systemSmall { Text(snap.monthLabel) }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text("Add an account to track this.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+struct SafeToSpendWidget: Widget {
+    let kind: String = "SummitSafeToSpendWidget"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: SummitSnapshotProvider()) { entry in
+            SafeToSpendWidgetView(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("Safe to Spend")
+        .description("How much you can safely spend today before upcoming bills.")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline, .accessoryCircular])
+    }
+}
+
+#Preview(as: .systemSmall) {
+    SafeToSpendWidget()
+} timeline: {
+    SummitSnapshotEntry(date: .now, snapshot: .placeholder)
+}
+
+#Preview(as: .accessoryRectangular) {
+    SafeToSpendWidget()
+} timeline: {
+    SummitSnapshotEntry(date: .now, snapshot: .placeholder)
+}
+
 #Preview(as: .systemSmall) {
     NetWorthWidget()
 } timeline: {

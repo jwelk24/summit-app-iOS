@@ -1,5 +1,7 @@
 import Foundation
 
+/// Self-contained copy for the watch widget extension (reads the app-group file
+/// that the Watch app writes on receiving the phone's snapshot).
 struct SummitSnapshot: Codable {
     struct AccountSummary: Codable, Identifiable, Hashable {
         let id: UUID
@@ -26,13 +28,6 @@ struct SummitSnapshot: Codable {
     let upcomingBills: [BillSummary]
     let safeToSpendToday: Double?
     let safePerDay: Double?
-
-    var netWorth: Double { totalAssets - totalLiabilities }
-    var budgetRemaining: Double { budgetAssigned - budgetSpent }
-    var budgetUsedFraction: Double {
-        guard budgetAssigned > 0 else { return 0 }
-        return min(1.0, max(0.0, budgetSpent / budgetAssigned))
-    }
 
     static let appGroupID = "group.com.welker.Summit"
     static let snapshotFilename = "SummitSnapshot.json"

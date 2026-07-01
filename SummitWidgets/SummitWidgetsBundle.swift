@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct SummitWidgetsBundle: WidgetBundle {
     var body: some Widget {
+        SafeToSpendWidget()
         NetWorthWidget()
         BudgetRemainingWidget()
         UpcomingBillsWidget()

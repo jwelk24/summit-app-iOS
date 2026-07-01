@@ -9,13 +9,14 @@ private func currencyFormatter(_ code: String) -> NumberFormatter {
 }
 
 struct ContentView: View {
-    @State private var snapshot: SummitSnapshot?
-    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var receiver = WatchConnectivityReceiver.shared
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if let snap = snapshot {
+                if let snap = receiver.snapshot {
+                    SafeToSpendBlock(snap: snap)
+                    Divider()
                     NetWorthBlock(snap: snap)
                     Divider()
                     BudgetBlock(snap: snap)
@@ -40,12 +41,31 @@ struct ContentView: View {
             .padding(.horizontal, 4)
         }
         .navigationTitle("Summit")
-        .onAppear { snapshot = SummitSnapshot.load() }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                snapshot = SummitSnapshot.load()
+    }
+}
+
+private struct SafeToSpendBlock: View {
+    let snap: SummitSnapshot
+    var body: some View {
+        let formatter = currencyFormatter(snap.currencyCode)
+        let today = snap.safeToSpendToday
+        let todayStr = today.map { formatter.string(from: NSNumber(value: $0)) ?? "$0" } ?? "—"
+        let tint: Color = (today ?? 0) <= 0 ? .orange : .green
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Safe to Spend")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(todayStr)
+                .font(.title3.bold())
+                .foregroundStyle(today == nil ? Color.secondary : tint)
+                .minimumScaleFactor(0.6)
+            if let perDay = snap.safePerDay {
+                Text("\(formatter.string(from: NSNumber(value: perDay)) ?? "$0")/day")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

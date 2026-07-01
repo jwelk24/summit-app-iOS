@@ -26,6 +26,9 @@ nonisolated struct SummitSnapshot: Codable {
     let budgetAssigned: Double
     let budgetSpent: Double
     let upcomingBills: [BillSummary]
+    /// Optional so older snapshots (written before this field existed) still decode.
+    let safeToSpendToday: Double?
+    let safePerDay: Double?
 
     var netWorth: Double { totalAssets - totalLiabilities }
     var budgetRemaining: Double { budgetAssigned - budgetSpent }
@@ -66,6 +69,7 @@ enum SummitSnapshotWriter {
         let snap = build(context: context)
         try? snap.save()
         WidgetCenter.shared.reloadAllTimelines()
+        WatchSyncService.shared.send(snap)
     }
 
     private static func build(context: ModelContext) -> SummitSnapshot {
@@ -135,6 +139,14 @@ enum SummitSnapshotWriter {
 
         let currency = accounts.first?.currencyCode ?? "USD"
 
+        let safe = SafeToSpendCalculator.compute(
+            accounts: accounts,
+            scheduled: scheduled,
+            transactions: txs,
+            cushion: SmartAlertsService.shared.lowBalanceThreshold,
+            now: now
+        )
+
         return SummitSnapshot(
             lastUpdated: Date(),
             currencyCode: currency,
@@ -144,7 +156,9 @@ enum SummitSnapshotWriter {
             monthLabel: monthLabel,
             budgetAssigned: NSDecimalNumber(decimal: assignedTotal).doubleValue,
             budgetSpent: NSDecimalNumber(decimal: spentTotal).doubleValue,
-            upcomingBills: upcoming
+            upcomingBills: upcoming,
+            safeToSpendToday: safe.hasSpendableAccount ? NSDecimalNumber(decimal: safe.safeToday).doubleValue : nil,
+            safePerDay: safe.hasSpendableAccount ? NSDecimalNumber(decimal: safe.perDay).doubleValue : nil
         )
     }
 }

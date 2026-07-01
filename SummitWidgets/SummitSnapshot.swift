@@ -24,6 +24,8 @@ struct SummitSnapshot: Codable {
     let budgetAssigned: Double
     let budgetSpent: Double
     let upcomingBills: [BillSummary]
+    let safeToSpendToday: Double?
+    let safePerDay: Double?
 
     var netWorth: Double { totalAssets - totalLiabilities }
     var budgetRemaining: Double { budgetAssigned - budgetSpent }
@@ -63,7 +65,9 @@ struct SummitSnapshot: Codable {
                 BillSummary(id: UUID(), name: "Rent", amount: -1800, date: Date().addingTimeInterval(86_400 * 5)),
                 BillSummary(id: UUID(), name: "Internet", amount: -65, date: Date().addingTimeInterval(86_400 * 9)),
                 BillSummary(id: UUID(), name: "Utilities", amount: -180, date: Date().addingTimeInterval(86_400 * 14))
-            ]
+            ],
+            safeToSpendToday: 48,
+            safePerDay: 62
         )
     }
 }
