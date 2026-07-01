@@ -773,6 +773,7 @@ struct CustomizeTabsView: View {
     @AppStorage("appAccentHex") private var appAccentHex: String = ""
     @AppStorage("appBackgroundHex") private var appBackgroundHex: String = ""
     @AppStorage("appRowBgHex") private var appRowBgHex: String = ""
+    @AppStorage("cleanMerchantNames") private var cleanMerchantNames = true
 
     @State private var orderedKinds: [TabKind] = []
     @State private var accentColor: Color = .accentColor
@@ -798,6 +799,16 @@ struct CustomizeTabsView: View {
                     Text("Appearance")
                 } footer: {
                     Text("Accent tints buttons. Page background fills behind lists. Row background fills each list row.")
+                }
+                .summitRowBackground()
+
+                Section {
+                    Toggle("Tidy up merchant names", isOn: $cleanMerchantNames)
+                        .accessibilityIdentifier("cleanMerchantNamesToggle")
+                } header: {
+                    Text("Transactions")
+                } footer: {
+                    Text("Cleans messy bank descriptions for display (e.g. \"SQ *BLUE BOTTLE #1234\" → \"Blue Bottle\"). Done entirely on your device; your original data isn't changed.")
                 }
                 .summitRowBackground()
 
@@ -1948,11 +1959,13 @@ struct TransactionsView: View {
 
 private struct TransactionRow: View {
     let transaction: TransactionModel
+    @AppStorage("cleanMerchantNames") private var cleanMerchantNames = true
 
     var body: some View {
         let categoryName = transaction.category?.name
             ?? (transaction.splits.isEmpty ? nil : "Split")
         let dotColor = categoryName.map(summitCategoryColor) ?? .gray
+        let displayMerchant = cleanMerchantNames ? MerchantCleaner.clean(transaction.merchant) : transaction.merchant
         HStack(spacing: 12) {
             SummitCategoryDot(
                 color: dotColor,
@@ -1960,7 +1973,7 @@ private struct TransactionRow: View {
                 size: 12
             )
             VStack(alignment: .leading, spacing: 4) {
-                Text(transaction.merchant)
+                Text(displayMerchant)
                 HStack(spacing: 6) {
                     Text(transaction.date, style: .date)
                     if let category = transaction.category {
