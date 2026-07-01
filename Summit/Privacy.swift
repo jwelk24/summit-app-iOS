@@ -219,6 +219,8 @@ struct PrivacyView: View {
     @State private var showingDeleteConfirm = false
     @State private var status: String?
     @State private var isWorking = false
+    @AppStorage("merchantLogosEnabled") private var merchantLogos = false
+    @State private var showingLogoConsent = false
 
     private var canDeleteCloud: Bool {
         SupabaseService.shared.isAuthenticated && HouseholdService.shared.currentHousehold != nil
@@ -296,6 +298,22 @@ struct PrivacyView: View {
                 }
 
                 Section {
+                    Toggle("Show merchant logos", isOn: Binding(
+                        get: { merchantLogos },
+                        set: { newValue in
+                            if newValue { showingLogoConsent = true } // commit only after consent
+                            else { merchantLogos = false }
+                        }
+                    ))
+                    .accessibilityIdentifier("merchantLogosToggle")
+                } header: {
+                    Text("Merchant Logos")
+                } footer: {
+                    Text("Off by default. This is the only feature that uses the network — you'll see exactly what it involves before it turns on.")
+                }
+                .summitRowBackground()
+
+                Section {
                     Label("On-device AI • Apple Intelligence", systemImage: "sparkles")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -323,6 +341,16 @@ struct PrivacyView: View {
             ) {
                 Button("Erase Cloud Data", role: .destructive) { Task { await deleteCloud() } }
                 Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog(
+                "Show merchant logos?",
+                isPresented: $showingLogoConsent,
+                titleVisibility: .visible
+            ) {
+                Button("Enable — I understand") { merchantLogos = true }
+                Button("Cancel", role: .cancel) { merchantLogos = false }
+            } message: {
+                Text("To show logos, Summit sends merchant names from your transactions to a logo service over the internet. It's the only Summit feature that sends any of your data off your device — your budgets, balances, and all AI stay on your iPhone. You can turn this off anytime.")
             }
             .alert("Privacy & Data", isPresented: Binding(
                 get: { status != nil },

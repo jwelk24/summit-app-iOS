@@ -1960,6 +1960,7 @@ struct TransactionsView: View {
 private struct TransactionRow: View {
     let transaction: TransactionModel
     @AppStorage("cleanMerchantNames") private var cleanMerchantNames = true
+    @AppStorage("merchantLogosEnabled") private var merchantLogos = false
 
     var body: some View {
         let categoryName = transaction.category?.name
@@ -1967,11 +1968,19 @@ private struct TransactionRow: View {
         let dotColor = categoryName.map(summitCategoryColor) ?? .gray
         let displayMerchant = cleanMerchantNames ? MerchantCleaner.clean(transaction.merchant) : transaction.merchant
         HStack(spacing: 12) {
-            SummitCategoryDot(
-                color: dotColor,
-                ringColor: flagColor(transaction.flagColor),
-                size: 12
-            )
+            if merchantLogos {
+                MerchantLogoView(
+                    merchant: transaction.merchant,
+                    fallbackColor: dotColor,
+                    ringColor: flagColor(transaction.flagColor)
+                )
+            } else {
+                SummitCategoryDot(
+                    color: dotColor,
+                    ringColor: flagColor(transaction.flagColor),
+                    size: 12
+                )
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayMerchant)
                 HStack(spacing: 6) {
