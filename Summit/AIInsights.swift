@@ -293,6 +293,26 @@ struct AIInsightsService {
         return f.string(from: NSDecimalNumber(decimal: d)) ?? "$0"
     }
 
+    // MARK: Coach tip
+
+    /// One short, on-device coaching tip synthesized from already-computed facts.
+    /// The facts (from `FinancialCoach`) are the source of truth; the model only
+    /// phrases them, and is told never to invent numbers.
+    func coachTip(facts: [String]) async throws -> String? {
+        guard Self.isAvailable, !facts.isEmpty else { return nil }
+        let instructions = """
+        You are a warm, concise personal-finance coach. Given a few factual \
+        observations about the user's finances, write ONE short, encouraging, \
+        actionable tip (at most two sentences). Never invent numbers or facts \
+        beyond what's given. No greeting or preamble — just the tip.
+        """
+        let session = LanguageModelSession(instructions: instructions)
+        let prompt = "Observations:\n" + facts.map { "- \($0)" }.joined(separator: "\n")
+        let result = try await session.respond(to: prompt)
+        let text = result.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     // MARK: Helpers
 
     private func totalsByCategory(_ txns: [TransactionModel]) -> [String: Decimal] {

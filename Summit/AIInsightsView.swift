@@ -26,6 +26,7 @@ struct AIInsightsView: View {
     @State private var isAsking = false
 
     @State private var coachInsights: [CoachInsight] = []
+    @State private var coachTip: String?
 
     var body: some View {
         NavigationStack {
@@ -60,7 +61,7 @@ struct AIInsightsView: View {
             }
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
-            .task { loadCoach() }
+            .task { await loadCoach() }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView()
             }
@@ -76,6 +77,12 @@ struct AIInsightsView: View {
 
     private var coachSection: some View {
         Section {
+            if let tip = coachTip {
+                Label(tip, systemImage: "sparkles")
+                    .font(.subheadline)
+                    .foregroundStyle(.tint)
+                    .padding(.vertical, 2)
+            }
             if coachInsights.isEmpty {
                 Label("You're on track — nothing notable right now.", systemImage: "checkmark.seal")
                     .font(.subheadline)
@@ -111,11 +118,15 @@ struct AIInsightsView: View {
         }
     }
 
-    private func loadCoach() {
+    private func loadCoach() async {
         coachInsights = FinancialCoach.insights(
             context: context,
             cushion: SmartAlertsService.shared.lowBalanceThreshold
         )
+        coachTip = nil
+        guard !coachInsights.isEmpty else { return }
+        let facts = coachInsights.map { "\($0.title): \($0.detail)" }
+        coachTip = try? await AIInsightsService(context: context).coachTip(facts: facts)
     }
 
     private var askSection: some View {
