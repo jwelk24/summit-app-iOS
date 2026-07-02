@@ -104,6 +104,29 @@ private struct BalanceSnapshotRow: Codable, Sendable {
     let deleted_at: Date?
 }
 
+private struct SharedExpenseRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let title: String
+    let amount: Decimal
+    let date: Date
+    let payer_user_id: UUID
+    let payer_share: Decimal
+    let note: String?
+    let deleted_at: Date?
+}
+
+private struct SettlementRow: Codable, Sendable {
+    let id: UUID
+    let household_id: UUID
+    let date: Date
+    let from_user_id: UUID
+    let to_user_id: UUID
+    let amount: Decimal
+    let note: String?
+    let deleted_at: Date?
+}
+
 private struct LiabilityRow: Codable, Sendable {
     let id: UUID
     let household_id: UUID
@@ -330,6 +353,7 @@ final class SyncService {
     func deleteAllCloudData(householdID: UUID) async throws {
         let hid = householdID.uuidString.lowercased()
         let tables = [
+            "settlements", "shared_expenses",
             "transaction_splits", "plaid_transaction_links", "transactions",
             "plaid_account_links", "balance_snapshots",
             "budget_allocations", "budget_months",
@@ -413,6 +437,8 @@ final class SyncService {
             await runPush("plaid_transaction_links") { try await pushPlaidTransactionLinks(context: context, householdID: household.id) }
             await runPush("transaction_splits") { try await pushTransactionSplits(context: context, householdID: household.id) }
             await runPush("balance_snapshots") { try await pushBalanceSnapshots(context: context, householdID: household.id) }
+            await runPush("shared_expenses") { try await pushSharedExpenses(context: context, householdID: household.id) }
+            await runPush("settlements") { try await pushSettlements(context: context, householdID: household.id) }
             await runPush("deletions") { try await pushDeletions(context: context, householdID: household.id) }
         }
 
@@ -431,6 +457,8 @@ final class SyncService {
         await runPull("plaid_transaction_links") { try await pullPlaidTransactionLinks(context: context, householdID: household.id) }
         await runPull("transaction_splits") { try await pullTransactionSplits(context: context, householdID: household.id) }
         await runPull("balance_snapshots") { try await pullBalanceSnapshots(context: context, householdID: household.id) }
+        await runPull("shared_expenses") { try await pullSharedExpenses(context: context, householdID: household.id) }
+        await runPull("settlements") { try await pullSettlements(context: context, householdID: household.id) }
 
         lastPushCount = pushed
         lastPullCount = pulled
@@ -1259,6 +1287,71 @@ final class SyncService {
 
     private struct DeletedAtUpdate: Encodable, Sendable {
         let deleted_at: Date
+    }
+
+    // MARK: - Shared expenses & settlements
+
+    private func pushSharedExpenses(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<SharedExpenseModel>())
+        let rows = local.map { e in
+            SharedExpenseRow(id: e.id, household_id: householdID, title: e.title, amount: e.amount, date: e.date,
+                             payer_user_id: e.payerUserID, payer_share: e.payerShare, note: e.note, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("shared_expenses").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullSharedExpenses(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [SharedExpenseRow] = try await SupabaseService.shared.client
+            .from("shared_expenses").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+        var byID = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<SharedExpenseModel>()).map { ($0.id, $0) })
+        var changed = 0
+        for row in rows {
+            if let local = byID[row.id] {
+                if local.title != row.title { local.title = row.title; changed += 1 }
+                if local.amount != row.amount { local.amount = row.amount; changed += 1 }
+                if local.date != row.date { local.date = row.date; changed += 1 }
+                if local.payerUserID != row.payer_user_id { local.payerUserID = row.payer_user_id; changed += 1 }
+                if local.payerShare != row.payer_share { local.payerShare = row.payer_share; changed += 1 }
+                if local.note != row.note { local.note = row.note; changed += 1 }
+            } else {
+                let e = SharedExpenseModel(id: row.id, householdID: row.household_id, title: row.title, amount: row.amount,
+                                           date: row.date, payerUserID: row.payer_user_id, payerShare: row.payer_share, note: row.note)
+                context.insert(e); byID[row.id] = e; changed += 1
+            }
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
+    }
+
+    private func pushSettlements(context: ModelContext, householdID: UUID) async throws -> Int {
+        let local = try context.fetch(FetchDescriptor<SettlementModel>())
+        let rows = local.map { s in
+            SettlementRow(id: s.id, household_id: householdID, date: s.date, from_user_id: s.fromUserID,
+                          to_user_id: s.toUserID, amount: s.amount, note: s.note, deleted_at: nil)
+        }
+        guard !rows.isEmpty else { return 0 }
+        try await SupabaseService.shared.client.from("settlements").upsert(rows, onConflict: "id").execute()
+        return rows.count
+    }
+
+    private func pullSettlements(context: ModelContext, householdID: UUID) async throws -> Int {
+        let rows: [SettlementRow] = try await SupabaseService.shared.client
+            .from("settlements").select()
+            .eq("household_id", value: householdID.uuidString.lowercased())
+            .is("deleted_at", value: nil).execute().value
+        let existing = Set(try context.fetch(FetchDescriptor<SettlementModel>()).map(\.id))
+        var changed = 0
+        for row in rows where !existing.contains(row.id) {
+            let s = SettlementModel(id: row.id, householdID: row.household_id, date: row.date,
+                                    fromUserID: row.from_user_id, toUserID: row.to_user_id, amount: row.amount, note: row.note)
+            context.insert(s); changed += 1
+        }
+        if changed > 0 { try context.save() }
+        return rows.count
     }
 
     private func pushDeletions(context: ModelContext, householdID: UUID) async throws -> Int {

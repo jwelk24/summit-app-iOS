@@ -24,6 +24,8 @@ enum SummitSharedStore {
             LiabilityModel.self,
             CategoryRuleModel.self,
             SoftDeleteTombstone.self,
+            SharedExpenseModel.self,
+            SettlementModel.self,
         ])
     }
 

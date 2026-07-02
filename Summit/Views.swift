@@ -21,6 +21,7 @@ struct BudgetView: View {
     @State private var showingRules = false
     @State private var showingAlerts = false
     @State private var showingPrivacy = false
+    @State private var showingSettleUp = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -279,6 +280,13 @@ struct BudgetView: View {
                         }
 
                         Button {
+                            showingSettleUp = true
+                        } label: {
+                            Label("Shared Expenses", systemImage: "person.2")
+                        }
+                        .accessibilityIdentifier("sharedExpensesButton")
+
+                        Button {
                             showingPrivacy = true
                         } label: {
                             Label("Privacy & Data", systemImage: "lock.shield")
@@ -314,6 +322,9 @@ struct BudgetView: View {
             }
             .sheet(isPresented: $showingPrivacy) {
                 PrivacyView()
+            }
+            .sheet(isPresented: $showingSettleUp) {
+                SettleUpView()
             }
             .accessibilityIdentifier("budgetScreen")
         }

@@ -472,3 +472,73 @@ final class SoftDeleteTombstone {
         self.createdAt = createdAt
     }
 }
+
+// MARK: - Household shared expenses (settle-up)
+
+@Model
+final class SharedExpenseModel {
+    @Attribute(.unique) var id: UUID
+    var householdID: UUID
+    var title: String
+    var amount: Decimal
+    var date: Date
+    /// The household member who paid.
+    var payerUserID: UUID
+    /// The payer's own share of the total; the remainder is owed to the payer by
+    /// the other member(s). A 50/50 split stores `amount / 2`.
+    var payerShare: Decimal
+    var note: String?
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        householdID: UUID,
+        title: String,
+        amount: Decimal,
+        date: Date = .now,
+        payerUserID: UUID,
+        payerShare: Decimal,
+        note: String? = nil,
+        createdAt: Date = .now
+    ) {
+        self.id = id
+        self.householdID = householdID
+        self.title = title
+        self.amount = amount
+        self.date = date
+        self.payerUserID = payerUserID
+        self.payerShare = payerShare
+        self.note = note
+        self.createdAt = createdAt
+    }
+}
+
+@Model
+final class SettlementModel {
+    @Attribute(.unique) var id: UUID
+    var householdID: UUID
+    var date: Date
+    /// Who paid the settlement (the person who owed).
+    var fromUserID: UUID
+    var toUserID: UUID
+    var amount: Decimal
+    var note: String?
+
+    init(
+        id: UUID = UUID(),
+        householdID: UUID,
+        date: Date = .now,
+        fromUserID: UUID,
+        toUserID: UUID,
+        amount: Decimal,
+        note: String? = nil
+    ) {
+        self.id = id
+        self.householdID = householdID
+        self.date = date
+        self.fromUserID = fromUserID
+        self.toUserID = toUserID
+        self.amount = amount
+        self.note = note
+    }
+}

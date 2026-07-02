@@ -96,6 +96,21 @@ final class HouseholdService {
         }
     }
 
+    /// All members of the current household (for settle-up attribution).
+    func members() async -> [HouseholdMembership] {
+        guard let household = currentHousehold else { return [] }
+        do {
+            return try await SupabaseService.shared.client
+                .from("household_members")
+                .select()
+                .eq("household_id", value: household.id.uuidString.lowercased())
+                .execute()
+                .value
+        } catch {
+            return []
+        }
+    }
+
     func createInvite(role: HouseholdRole = .member, expiresInDays: Int = 7) async throws -> String {
         guard let household = currentHousehold else { throw HouseholdError.noHousehold }
         guard let userID = SupabaseService.shared.currentUserID else { throw HouseholdError.notAuthenticated }
