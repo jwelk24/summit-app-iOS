@@ -261,6 +261,36 @@ struct SafeToSpendWidget: Widget {
     }
 }
 
+// MARK: - Quick Add
+
+struct QuickAddWidgetView: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(.tint)
+            Text("Add Expense")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct QuickAddWidget: Widget {
+    let kind: String = "SummitQuickAddWidget"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: SummitSnapshotProvider()) { _ in
+            QuickAddWidgetView()
+                .containerBackground(.fill.tertiary, for: .widget)
+                .widgetURL(URL(string: "summit://add"))
+        }
+        .configurationDisplayName("Quick Add")
+        .description("Tap to log an expense in Summit.")
+        .supportedFamilies([.systemSmall])
+    }
+}
+
 #Preview(as: .systemSmall) {
     SafeToSpendWidget()
 } timeline: {

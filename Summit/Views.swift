@@ -2114,7 +2114,7 @@ private struct SplitDraft: Identifiable, Equatable {
     var memo: String
 }
 
-private struct TransactionEditor: View {
+struct TransactionEditor: View {
     let editing: TransactionModel?
     var defaultAccount: AccountModel? = nil
 

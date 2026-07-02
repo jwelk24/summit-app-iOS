@@ -1,77 +1,19 @@
-//
-//  SummitWidgetsControl.swift
-//  SummitWidgets
-//
-//  Created by Jayson Welker on 6/17/26.
-//
-
 import AppIntents
 import SwiftUI
 import WidgetKit
 
+/// A Control Center control that opens Summit straight to "Add Expense" via the
+/// `summit://add` deep link.
 struct SummitWidgetsControl: ControlWidget {
-    static let kind: String = "BudgetingApp.Summit.SummitWidgets"
+    static let kind: String = "com.welker.Summit.QuickAddControl"
 
     var body: some ControlWidgetConfiguration {
-        AppIntentControlConfiguration(
-            kind: Self.kind,
-            provider: Provider()
-        ) { value in
-            ControlWidgetToggle(
-                "Start Timer",
-                isOn: value.isRunning,
-                action: StartTimerIntent(value.name)
-            ) { isRunning in
-                Label(isRunning ? "On" : "Off", systemImage: "timer")
+        StaticControlConfiguration(kind: Self.kind) {
+            ControlWidgetButton(action: OpenURLIntent(URL(string: "summit://add")!)) {
+                Label("Add Expense", systemImage: "plus.circle.fill")
             }
         }
-        .displayName("Timer")
-        .description("A an example control that runs a timer.")
-    }
-}
-
-extension SummitWidgetsControl {
-    struct Value {
-        var isRunning: Bool
-        var name: String
-    }
-
-    struct Provider: AppIntentControlValueProvider {
-        func previewValue(configuration: TimerConfiguration) -> Value {
-            SummitWidgetsControl.Value(isRunning: false, name: configuration.timerName)
-        }
-
-        func currentValue(configuration: TimerConfiguration) async throws -> Value {
-            let isRunning = true // Check if the timer is running
-            return SummitWidgetsControl.Value(isRunning: isRunning, name: configuration.timerName)
-        }
-    }
-}
-
-struct TimerConfiguration: ControlConfigurationIntent {
-    static let title: LocalizedStringResource = "Timer Name Configuration"
-
-    @Parameter(title: "Timer Name", default: "Timer")
-    var timerName: String
-}
-
-struct StartTimerIntent: SetValueIntent {
-    static let title: LocalizedStringResource = "Start a timer"
-
-    @Parameter(title: "Timer Name")
-    var name: String
-
-    @Parameter(title: "Timer is running")
-    var value: Bool
-
-    init() {}
-
-    init(_ name: String) {
-        self.name = name
-    }
-
-    func perform() async throws -> some IntentResult {
-        // Start the timer…
-        return .result()
+        .displayName("Add Expense")
+        .description("Quickly log an expense in Summit.")
     }
 }

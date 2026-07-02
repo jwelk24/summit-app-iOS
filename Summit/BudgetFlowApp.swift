@@ -39,6 +39,7 @@ struct RootView: View {
     @AppStorage("appBackgroundHex") private var appBackgroundHex: String = ""
 
     @State private var selectedTab: TabKind = .budget
+    @State private var showingQuickAdd = false
 
     private var orderedTabs: [TabKind] {
         let saved = tabOrderRaw.split(separator: ",").compactMap { TabKind(rawValue: String($0)) }
@@ -58,6 +59,15 @@ struct RootView: View {
         .monospacedDigit()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SummitSyncHUD()
+        }
+        .sheet(isPresented: $showingQuickAdd) {
+            TransactionEditor(editing: nil)
+        }
+        .onOpenURL { url in
+            // summit://add — from the Control Center control or Quick Add widget.
+            if url.scheme == "summit", url.host == "add" {
+                showingQuickAdd = true
+            }
         }
     }
 

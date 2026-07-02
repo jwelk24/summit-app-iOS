@@ -4,6 +4,17 @@
 <dict>
 	<key>SummitPlaidBackendURL</key>
 	<string>https://summit-backend-rszx.onrender.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.welker.Summit</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>summit</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
