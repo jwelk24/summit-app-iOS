@@ -1810,7 +1810,7 @@ struct TransactionsView: View {
                             Button {
                                 showingImporter = true
                             } label: {
-                                Label("Import CSV", systemImage: "square.and.arrow.down")
+                                Label("Import CSV (Mint, YNAB, Monarch…)", systemImage: "square.and.arrow.down")
                             }
                             .accessibilityIdentifier("importCSVButton")
 
@@ -1940,7 +1940,10 @@ struct TransactionsView: View {
                 importMessage = "Could not read file as text."
                 return
             }
-            let res = BudgetEngine.importCSV(content, accounts: accounts, categories: categories, context: context)
+            // Auto-detect a Mint / YNAB / Monarch export and transcode it to the
+            // generic format; otherwise import as-is.
+            let toImport = CompetitorCSVImporter.transcodeIfKnown(content) ?? content
+            let res = BudgetEngine.importCSV(toImport, accounts: accounts, categories: categories, context: context)
             var lines: [String] = []
             lines.append("Imported \(res.imported), skipped \(res.skipped).")
             if !res.errors.isEmpty {
@@ -2507,6 +2510,17 @@ struct NetWorthView: View {
         }
     }
 
+    private var netWorthMilestone: NetWorthMilestone? {
+        guard !filteredAccounts.isEmpty else { return nil }
+        let now = Date()
+        let current = netWorthAt(now, accounts: filteredAccounts)
+        guard current > 0 else { return nil }
+        let past = Calendar.current.date(byAdding: .month, value: -3, to: now) ?? now
+        let prior = netWorthAt(past, accounts: filteredAccounts)
+        let monthly = (current - prior) / 3
+        return NetWorthProjector.project(current: current, monthlyChange: monthly, now: now)
+    }
+
     private var deltaVsPast: (delta: Decimal, percent: Double?)? {
         guard !filteredAccounts.isEmpty else { return nil }
         let past = netWorthAt(rangeAgoDate, accounts: filteredAccounts)
@@ -2530,6 +2544,11 @@ struct NetWorthView: View {
                 )
                 .padding(.horizontal)
                 .padding(.top, 8)
+
+                if let milestone = netWorthMilestone {
+                    NetWorthMilestoneCard(milestone: milestone)
+                        .padding(.horizontal)
+                }
 
                 List {
                     Section {

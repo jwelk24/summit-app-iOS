@@ -23,6 +23,7 @@ enum FinancialCoach {
 
         var out: [CoachInsight] = []
         out += cashFlowInsight(accounts: accounts, scheduled: scheduled, transactions: transactions, cushion: cushion, now: now)
+        out += streakInsight(transactions: transactions, now: now)
         out += categoryMovers(transactions: transactions, now: now)
         out += priceChangeInsights(transactions: transactions, now: now)
         out += upcomingBillInsight(scheduled: scheduled, now: now)
@@ -45,6 +46,31 @@ enum FinancialCoach {
             )]
         }
         return []
+    }
+
+    // MARK: No-spend streak
+
+    private static func streakInsight(transactions: [TransactionModel], now: Date) -> [CoachInsight] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        var spendDays = Set<Date>()
+        for tx in transactions where tx.cashFlowKind == .expense {
+            spendDays.insert(cal.startOfDay(for: tx.date))
+        }
+        var streak = 0
+        var day = today
+        while !spendDays.contains(day), streak <= 120 {
+            streak += 1
+            guard let prev = cal.date(byAdding: .day, value: -1, to: day) else { break }
+            day = prev
+        }
+        guard streak >= 2 else { return [] }
+        return [CoachInsight(
+            icon: "flame.fill",
+            title: "\(streak)-day no-spend streak",
+            detail: "No spending logged for \(streak) days straight — keep it going.",
+            sentiment: .positive
+        )]
     }
 
     // MARK: Category month-over-month movers
