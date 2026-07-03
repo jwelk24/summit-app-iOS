@@ -90,7 +90,7 @@ enum CompetitorCSVImporter {
         return Decimal(string: cleaned) ?? 0
     }
 
-    private static func escape(_ v: String) -> String {
+    private nonisolated static func escape(_ v: String) -> String {
         if v.contains(",") || v.contains("\"") || v.contains("\n") {
             return "\"" + v.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
