@@ -5,13 +5,15 @@ import SwiftData
 
 enum SettleUp {
     /// Net balance for `me`: positive means the household owes you, negative
-    /// means you owe. Exact for a two-person household (the couples case).
-    static func netBalance(expenses: [SharedExpenseModel], settlements: [SettlementModel], me: UUID) -> Decimal {
+    /// means you owe. Assumes the non-payer remainder of each expense is split
+    /// evenly among the other members (exact for two-person households).
+    static func netBalance(expenses: [SharedExpenseModel], settlements: [SettlementModel], me: UUID, memberCount: Int) -> Decimal {
+        let others = Decimal(max(1, memberCount - 1))
         var balance: Decimal = 0
         for e in expenses {
             let owedToPayer = e.amount - e.payerShare
             if e.payerUserID == me { balance += owedToPayer }
-            else { balance -= owedToPayer }
+            else { balance -= owedToPayer / others }
         }
         for s in settlements {
             if s.fromUserID == me { balance += s.amount }
@@ -31,27 +33,37 @@ struct SettleUpView: View {
     @Query(sort: \SettlementModel.date, order: .reverse) private var allSettlements: [SettlementModel]
 
     @State private var members: [HouseholdMembership] = []
+    @State private var names: [UUID: String] = [:]
     @State private var loaded = false
     @State private var showingAdd = false
 
     private var householdID: UUID? { HouseholdService.shared.currentHousehold?.id }
     private var me: UUID? { SupabaseService.shared.currentUserID }
-    private var other: UUID? { members.map(\.user_id).first { $0 != me } }
+    /// The single counterparty — only defined for a two-person household.
+    private var other: UUID? { members.count == 2 ? members.map(\.user_id).first { $0 != me } : nil }
 
     private var expenses: [SharedExpenseModel] { allExpenses.filter { $0.householdID == householdID } }
     private var settlements: [SettlementModel] { allSettlements.filter { $0.householdID == householdID } }
 
     private var balance: Decimal {
         guard let me else { return 0 }
-        return SettleUp.netBalance(expenses: expenses, settlements: settlements, me: me)
+        return SettleUp.netBalance(expenses: expenses, settlements: settlements, me: me, memberCount: members.count)
     }
+
+    private func name(for id: UUID?) -> String {
+        guard let id else { return "Member" }
+        if id == me { return "You" }
+        return names[id] ?? "Partner"
+    }
+
+    private var otherName: String { name(for: other) }
 
     var body: some View {
         NavigationStack {
             Group {
                 if members.count < 2 {
                     ContentUnavailableView {
-                        Label("Invite Your Partner", systemImage: "person.2")
+                        Label("Invite Someone", systemImage: "person.2")
                     } description: {
                         Text(loaded
                              ? "Settle Up tracks shared expenses between household members. Invite a partner from Sync & Account to get started."
@@ -73,12 +85,16 @@ struct SettleUpView: View {
                 }
             }
             .sheet(isPresented: $showingAdd) {
-                if let householdID, let me, let other {
-                    AddSharedExpenseView(householdID: householdID, me: me, other: other)
+                if let householdID, let me {
+                    AddSharedExpenseView(householdID: householdID, me: me, other: other, otherName: otherName)
                 }
             }
             .task {
-                if !loaded { members = await HouseholdService.shared.members(); loaded = true }
+                if !loaded {
+                    members = await HouseholdService.shared.members()
+                    names = await HouseholdService.shared.profileNames(for: members.map(\.user_id))
+                    loaded = true
+                }
             }
         }
     }
@@ -86,20 +102,25 @@ struct SettleUpView: View {
     @ViewBuilder private var content: some View {
         VStack(spacing: 12) {
             SummitGlassCard {
-                SummitHeroHeader(systemImage: "person.2.fill", label: "Between You & Your Partner")
+                SummitHeroHeader(
+                    systemImage: "person.2.fill",
+                    label: members.count == 2 ? "You & \(otherName)" : "Your Household"
+                )
                 SummitHeroAmount(
                     caption: balanceCaption,
                     value: currency(balance < 0 ? -balance : balance),
                     tint: balance == 0 ? .secondary : (balance > 0 ? .green : .orange)
                 )
-                if balance != 0 {
-                    Button {
-                        settleUp()
-                    } label: {
+                if balance != 0, other != nil {
+                    Button { settleUp() } label: {
                         Label("Settle Up", systemImage: "checkmark.circle.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                } else if balance != 0 {
+                    Text("Settling up is available for two-person households.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else {
                     Text("You're all settled up.")
                         .font(.caption)
@@ -116,7 +137,7 @@ struct SettleUpView: View {
                 } else {
                     Section("Activity") {
                         ForEach(activity, id: \.id) { item in
-                            ActivityRow(item: item, me: me)
+                            ActivityRow(item: item)
                         }
                     }
                     .summitRowBackground()
@@ -127,57 +148,54 @@ struct SettleUpView: View {
     }
 
     private var balanceCaption: String {
-        if balance > 0 { return "Your partner owes you" }
-        if balance < 0 { return "You owe your partner" }
+        if balance > 0 { return members.count == 2 ? "\(otherName) owes you" : "You're owed" }
+        if balance < 0 { return members.count == 2 ? "You owe \(otherName)" : "You owe" }
         return "Settled up"
     }
 
-    // Unified, date-sorted activity feed.
     private struct ActivityItem: Identifiable {
         let id: UUID
         let date: Date
         let title: String
         let amount: Decimal
         let isSettlement: Bool
-        let payerIsMe: Bool
+        let who: String
     }
 
     private var activity: [ActivityItem] {
         var items: [ActivityItem] = []
         for e in expenses {
             items.append(ActivityItem(id: e.id, date: e.date, title: e.title, amount: e.amount,
-                                      isSettlement: false, payerIsMe: e.payerUserID == me))
+                                      isSettlement: false, who: name(for: e.payerUserID)))
         }
         for s in settlements {
-            items.append(ActivityItem(id: s.id, date: s.date, title: "Settlement", amount: s.amount,
-                                      isSettlement: true, payerIsMe: s.fromUserID == me))
+            items.append(ActivityItem(id: s.id, date: s.date, title: "\(name(for: s.fromUserID)) → \(name(for: s.toUserID))",
+                                      amount: s.amount, isSettlement: true, who: "Settlement"))
         }
         return items.sorted { $0.date > $1.date }
     }
 
     private struct ActivityRow: View {
         let item: ActivityItem
-        let me: UUID?
         var body: some View {
             HStack {
                 Image(systemName: item.isSettlement ? "arrow.left.arrow.right.circle.fill" : "cart.fill")
                     .foregroundStyle(item.isSettlement ? AnyShapeStyle(.blue) : AnyShapeStyle(.secondary))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                    Text("\(item.payerIsMe ? "You" : "Partner") · \(item.date.formatted(date: .abbreviated, time: .omitted))")
+                    Text("\(item.who) · \(item.date.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(currency(item.amount)).monospacedDigit()
+                Text(SettleUpFormat.currency(item.amount)).monospacedDigit()
             }
         }
-        private func currency(_ d: Decimal) -> String { SettleUpFormat.currency(d) }
     }
 
     private func settleUp() {
         guard let householdID, let me, let other, balance != 0 else { return }
         let amount = balance < 0 ? -balance : balance
-        // If I owe (balance < 0), I pay my partner; otherwise record that they paid me.
+        // If I owe (balance < 0), I pay; otherwise record that they paid me.
         let settlement = SettlementModel(
             householdID: householdID,
             fromUserID: balance < 0 ? me : other,
@@ -199,7 +217,8 @@ struct AddSharedExpenseView: View {
 
     let householdID: UUID
     let me: UUID
-    let other: UUID
+    let other: UUID?
+    let otherName: String
 
     @State private var title = ""
     @State private var amountText = ""
@@ -231,7 +250,7 @@ struct AddSharedExpenseView: View {
                 Section("Split") {
                     Picker("Paid by", selection: $paidByMe) {
                         Text("You").tag(true)
-                        Text("Partner").tag(false)
+                        Text(otherName).tag(false)
                     }
                     .pickerStyle(.segmented)
                     Toggle("Split evenly (50/50)", isOn: $splitEvenly)
@@ -257,7 +276,8 @@ struct AddSharedExpenseView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") { save() }.disabled(amount <= 0 || title.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Add") { save() }
+                        .disabled(amount <= 0 || title.trimmingCharacters(in: .whitespaces).isEmpty || (!paidByMe && other == nil))
                 }
             }
         }
@@ -267,12 +287,13 @@ struct AddSharedExpenseView: View {
         let payerShare = splitEvenly
             ? amount / 2
             : (Decimal(string: payerShareText.trimmingCharacters(in: .whitespaces)) ?? amount / 2)
+        let payer = paidByMe ? me : (other ?? me)
         let expense = SharedExpenseModel(
             householdID: householdID,
             title: title.trimmingCharacters(in: .whitespaces),
             amount: amount,
             date: date,
-            payerUserID: paidByMe ? me : other,
+            payerUserID: payer,
             payerShare: payerShare,
             note: note.isEmpty ? nil : note
         )

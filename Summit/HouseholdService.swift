@@ -37,6 +37,19 @@ private struct RedeemParams: Encodable, Sendable {
     let invite_code: String
 }
 
+struct Profile: Decodable, Sendable {
+    let user_id: UUID
+    let display_name: String
+    let email: String?
+}
+
+private struct ProfileUpsert: Encodable, Sendable {
+    let user_id: UUID
+    let display_name: String
+    let email: String?
+    let updated_at: Date
+}
+
 enum HouseholdRole: String, Sendable {
     case owner
     case member
@@ -94,6 +107,39 @@ final class HouseholdService {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Upserts the current user's display profile so household members can see a
+    /// name instead of a UUID. Display name is derived from the email local-part.
+    func upsertMyProfile() async {
+        guard let uid = SupabaseService.shared.currentUserID else { return }
+        let email = SupabaseService.shared.currentEmail
+        let payload = ProfileUpsert(user_id: uid, display_name: Self.displayName(email: email), email: email, updated_at: Date())
+        _ = try? await SupabaseService.shared.client.from("profiles").upsert(payload, onConflict: "user_id").execute()
+    }
+
+    /// Maps member user IDs to display names via the `profiles` table.
+    func profileNames(for userIDs: [UUID]) async -> [UUID: String] {
+        guard !userIDs.isEmpty else { return [:] }
+        do {
+            let rows: [Profile] = try await SupabaseService.shared.client
+                .from("profiles")
+                .select()
+                .in("user_id", values: userIDs.map { $0.uuidString.lowercased() })
+                .execute()
+                .value
+            return Dictionary(uniqueKeysWithValues: rows.map { ($0.user_id, $0.display_name) })
+        } catch {
+            return [:]
+        }
+    }
+
+    static func displayName(email: String?) -> String {
+        guard let email, let local = email.split(separator: "@").first, !local.isEmpty else { return "Member" }
+        return local
+            .split(whereSeparator: { $0 == "." || $0 == "_" || $0 == "-" })
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 
     /// All members of the current household (for settle-up attribution).

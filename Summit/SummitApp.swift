@@ -66,6 +66,7 @@ struct SummitApp: App {
                     await SupabaseService.shared.loadUser()
                     if SupabaseService.shared.isAuthenticated {
                         await HouseholdService.shared.refresh()
+                        await HouseholdService.shared.upsertMyProfile()
                         await SyncService.shared.syncAccounts(context: sharedModelContainer.mainContext)
                     }
                     await MainActor.run {
