@@ -169,28 +169,35 @@ struct BudgetView: View {
                 }
                 .padding(.horizontal)
 
-                SafeToSpendCard()
-                    .padding(.horizontal)
-
-                BudgetHeroCard(
-                    monthLabel: currentMonthLabel,
-                    available: BudgetEngine.availableToBudget(
-                        transactions: transactions,
-                        budgetMonth: budgetMonth,
-                        year: engine.selectedYear,
-                        month: engine.selectedMonth
-                    ),
-                    assigned: budgetMonth?.allocations.reduce(Decimal.zero) { $0 + $1.amount } ?? 0,
-                    spent: monthOutflow,
-                    ageOfMoneyDays: BudgetEngine.ageOfMoneyDays(transactions: transactions)
-                )
-                .padding(.horizontal)
-
                 Group {
                     if groups.isEmpty || categories.isEmpty {
                         BudgetEmptyState(onManageCategories: { showingManageCategories = true })
                     } else {
                         List {
+                            // Hero cards live inside the list (chromeless rows)
+                            // so they scroll away with the categories.
+                            Section {
+                                HStack(alignment: .top, spacing: 12) {
+                                    SafeToSpendTile()
+                                    FinancialHealthTile()
+                                }
+                                BudgetHeroCard(
+                                    monthLabel: currentMonthLabel,
+                                    available: BudgetEngine.availableToBudget(
+                                        transactions: transactions,
+                                        budgetMonth: budgetMonth,
+                                        year: engine.selectedYear,
+                                        month: engine.selectedMonth
+                                    ),
+                                    assigned: budgetMonth?.allocations.reduce(Decimal.zero) { $0 + $1.amount } ?? 0,
+                                    spent: monthOutflow,
+                                    ageOfMoneyDays: BudgetEngine.ageOfMoneyDays(transactions: transactions)
+                                )
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+
                             ForEach(groups.sorted(by: { $0.sort < $1.sort })) { group in
                                 Section(group.name) {
                                     ForEach(categories.filter { $0.group?.id == group.id }.sorted(by: { $0.sort < $1.sort })) { cat in

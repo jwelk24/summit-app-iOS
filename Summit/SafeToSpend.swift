@@ -83,6 +83,83 @@ enum SafeToSpendCalculator {
     }
 }
 
+// MARK: - Compact tile (home tab)
+
+/// Half-width summary tile for the budget screen; tapping it opens the full
+/// `SafeToSpendCard` in a sheet.
+struct SafeToSpendTile: View {
+    @Query private var accounts: [AccountModel]
+    @Query private var scheduled: [ScheduledItemModel]
+    @Query private var transactions: [TransactionModel]
+
+    @State private var showingDetail = false
+
+    private var result: SafeToSpend {
+        SafeToSpendCalculator.compute(
+            accounts: accounts,
+            scheduled: scheduled,
+            transactions: transactions,
+            cushion: SmartAlertsService.shared.lowBalanceThreshold
+        )
+    }
+
+    private var tint: Color {
+        if !result.hasSpendableAccount { return .secondary }
+        if result.safeToday <= 0 { return .orange }
+        return .green
+    }
+
+    private var subtitle: String {
+        if !result.hasSpendableAccount { return "Add an account" }
+        if result.isTight { return "Tight — spend carefully" }
+        return "\(currencyWhole(result.perDay))/day · \(result.daysUntilIncome)d left"
+    }
+
+    var body: some View {
+        Button {
+            showingDetail = true
+        } label: {
+            SummitGlassCard {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Safe to Spend", systemImage: "dollarsign.circle.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(currencyWhole(result.safeToday))
+                        .font(.title3.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(tint)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingDetail) {
+            NavigationStack {
+                ScrollView {
+                    SafeToSpendCard()
+                        .padding()
+                }
+                .summitListBackground()
+                .navigationTitle("Safe to Spend")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private func currencyWhole(_ d: Decimal) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.maximumFractionDigits = 0
+        return f.string(from: NSDecimalNumber(decimal: d)) ?? "$0"
+    }
+}
+
 // MARK: - Card
 
 struct SafeToSpendCard: View {
