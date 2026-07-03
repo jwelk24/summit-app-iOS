@@ -2915,6 +2915,13 @@ struct NetWorthView: View {
         holdings.reduce(.zero) { $0 + $1.institutionValue }
     }
 
+    /// Summed unrealized gain across the holdings that report a cost basis.
+    /// `nil` when none do, so the header can stay clean rather than show $0.
+    private func accountGain(_ rows: [InvestmentHoldingModel]) -> Decimal? {
+        let withBasis = rows.compactMap(\.unrealizedGain)
+        return withBasis.isEmpty ? nil : withBasis.reduce(.zero, +)
+    }
+
     @ViewBuilder
     private var investmentsSection: some View {
         if entitlements.canTrackInvestments {
@@ -2934,8 +2941,16 @@ struct NetWorthView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text(currency(accountHoldings.reduce(.zero) { $0 + $1.institutionValue }))
-                                    .monospacedDigit()
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(currency(accountHoldings.reduce(.zero) { $0 + $1.institutionValue }))
+                                        .monospacedDigit()
+                                    if let gain = accountGain(accountHoldings) {
+                                        Text(signedCurrency(gain))
+                                            .font(.caption)
+                                            .monospacedDigit()
+                                            .foregroundStyle(gain < 0 ? Color.red : Color.green)
+                                    }
+                                }
                             }
                         }
                     }
@@ -3032,8 +3047,21 @@ private struct HoldingRow: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(currency(holding.institutionValue))
-                .monospacedDigit()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(currency(holding.institutionValue))
+                    .monospacedDigit()
+                if let gain = holding.unrealizedGain {
+                    HStack(spacing: 4) {
+                        Text(signedCurrency(gain))
+                        if let pct = holding.returnFraction {
+                            Text(pct, format: .percent.precision(.fractionLength(pct.magnitude < 0.1 ? 1 : 0)).sign(strategy: .always()))
+                        }
+                    }
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(gain < 0 ? Color.red : Color.green)
+                }
+            }
         }
     }
 }
@@ -5535,6 +5563,16 @@ private func currency(_ d: Decimal) -> String {
     let n = NSDecimalNumber(decimal: d)
     let f = NumberFormatter()
     f.numberStyle = .currency
+    return f.string(from: n) ?? "$0"
+}
+
+/// Currency with an explicit leading sign, e.g. "+$1,240.00" / "-$85.10".
+/// Used for gain/loss where the direction matters at a glance.
+private func signedCurrency(_ d: Decimal) -> String {
+    let n = NSDecimalNumber(decimal: d)
+    let f = NumberFormatter()
+    f.numberStyle = .currency
+    f.positivePrefix = f.plusSign + (f.currencySymbol ?? "$")
     return f.string(from: n) ?? "$0"
 }
 

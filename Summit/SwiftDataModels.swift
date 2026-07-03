@@ -253,6 +253,21 @@ final class InvestmentHoldingModel {
 
     var account: AccountModel?
 
+    /// Unrealized gain/loss vs. cost basis. `nil` when Plaid didn't supply a
+    /// cost basis (common for some brokerages), so callers can hide it rather
+    /// than show a misleading $0.
+    var unrealizedGain: Decimal? {
+        guard let costBasis else { return nil }
+        return institutionValue - costBasis
+    }
+
+    /// Unrealized return as a fraction (0.12 == +12%). `nil` when there's no
+    /// positive cost basis to divide by.
+    var returnFraction: Double? {
+        guard let costBasis, costBasis > 0, let gain = unrealizedGain else { return nil }
+        return NSDecimalNumber(decimal: gain).doubleValue / NSDecimalNumber(decimal: costBasis).doubleValue
+    }
+
     init(
         id: UUID = UUID(),
         plaidAccountId: String,
