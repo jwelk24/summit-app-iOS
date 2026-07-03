@@ -831,7 +831,7 @@ struct CustomizeTabsView: View {
                 } header: {
                     Text("Tab Order")
                 } footer: {
-                    Text("Drag the handles to reorder. iPhone shows the first five; the rest live in More.")
+                    Text("Tap Edit, then drag to reorder. iPhone shows the first five; the rest live in More.")
                 }
                 .summitRowBackground()
 
@@ -850,11 +850,15 @@ struct CustomizeTabsView: View {
                 }
                 .summitRowBackground()
             }
-            .environment(\.editMode, .constant(.active))
             .navigationTitle("Customize")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                }
+                // Edit mode is only for reordering tabs; leaving it always-on
+                // grays out the Labels & Icons navigation links.
+                ToolbarItem(placement: .primaryAction) {
+                    EditButton()
                 }
             }
             .onAppear {
