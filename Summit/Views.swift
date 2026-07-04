@@ -23,6 +23,7 @@ struct BudgetView: View {
     @State private var showingPrivacy = false
     @State private var showingSettleUp = false
     @State private var showingWhatIf = false
+    @State private var showingWeeklyReview = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -280,6 +281,13 @@ struct BudgetView: View {
                         .accessibilityIdentifier("whatIfButton")
 
                         Button {
+                            showingWeeklyReview = true
+                        } label: {
+                            Label("Weekly Review", systemImage: "checklist")
+                        }
+                        .accessibilityIdentifier("weeklyReviewButton")
+
+                        Button {
                             showingRename = true
                         } label: {
                             Label("Customize Tabs", systemImage: "rectangle.3.group")
@@ -345,6 +353,9 @@ struct BudgetView: View {
                 NavigationStack {
                     WhatIfView()
                 }
+            }
+            .sheet(isPresented: $showingWeeklyReview) {
+                WeeklyReviewView()
             }
             .accessibilityIdentifier("budgetScreen")
         }
