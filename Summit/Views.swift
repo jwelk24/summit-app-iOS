@@ -24,6 +24,7 @@ struct BudgetView: View {
     @State private var showingSettleUp = false
     @State private var showingWhatIf = false
     @State private var showingWeeklyReview = false
+    @State private var showingWrapped = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -288,6 +289,13 @@ struct BudgetView: View {
                         .accessibilityIdentifier("weeklyReviewButton")
 
                         Button {
+                            showingWrapped = true
+                        } label: {
+                            Label("Summit Wrapped", systemImage: "sparkles.rectangle.stack")
+                        }
+                        .accessibilityIdentifier("wrappedButton")
+
+                        Button {
                             showingRename = true
                         } label: {
                             Label("Customize Tabs", systemImage: "rectangle.3.group")
@@ -356,6 +364,9 @@ struct BudgetView: View {
             }
             .sheet(isPresented: $showingWeeklyReview) {
                 WeeklyReviewView()
+            }
+            .sheet(isPresented: $showingWrapped) {
+                WrappedView()
             }
             .accessibilityIdentifier("budgetScreen")
         }
