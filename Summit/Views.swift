@@ -22,6 +22,7 @@ struct BudgetView: View {
     @State private var showingAlerts = false
     @State private var showingPrivacy = false
     @State private var showingSettleUp = false
+    @State private var showingWhatIf = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -272,6 +273,13 @@ struct BudgetView: View {
                         .accessibilityIdentifier("smartAlertsButton")
 
                         Button {
+                            showingWhatIf = true
+                        } label: {
+                            Label("What-If Simulator", systemImage: "arrow.triangle.branch")
+                        }
+                        .accessibilityIdentifier("whatIfButton")
+
+                        Button {
                             showingRename = true
                         } label: {
                             Label("Customize Tabs", systemImage: "rectangle.3.group")
@@ -332,6 +340,11 @@ struct BudgetView: View {
             }
             .sheet(isPresented: $showingSettleUp) {
                 SettleUpView()
+            }
+            .sheet(isPresented: $showingWhatIf) {
+                NavigationStack {
+                    WhatIfView()
+                }
             }
             .accessibilityIdentifier("budgetScreen")
         }
