@@ -206,6 +206,43 @@ struct NetWorthIntent: AppIntent {
     }
 }
 
+// MARK: - Ask Your Money
+
+struct AskMoneyIntent: AppIntent {
+    static let title: LocalizedStringResource = "Ask Your Money"
+    static let description = IntentDescription(
+        "Ask a question about your spending or income — e.g. \"How much did I spend on coffee this month?\" Answered entirely on-device; your data never leaves the phone."
+    )
+
+    static var openAppWhenRun: Bool { false }
+
+    @Parameter(title: "Question", requestValueDialog: "What do you want to know about your money?")
+    var question: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard Entitlements.shared.canUseAIInsights else {
+            return .result(dialog: "Ask Your Money is part of Summit Premium. You can upgrade in the app.")
+        }
+        guard AIInsightsService.isAvailable else {
+            return .result(dialog: "Apple Intelligence isn't available on this device right now, so I can't answer that.")
+        }
+        guard let context = openSummitContext() else {
+            return .result(dialog: "I couldn't open Summit's data right now.")
+        }
+
+        let service = AIInsightsService(context: context)
+        do {
+            guard let answer = try await service.answer(to: question) else {
+                return .result(dialog: "I couldn't understand that one. Try something like \"How much did I spend on groceries last month?\"")
+            }
+            return .result(dialog: IntentDialog(stringLiteral: answer.text))
+        } catch {
+            return .result(dialog: "I couldn't work that one out. Try rephrasing, like \"What did I spend this month?\"")
+        }
+    }
+}
+
 // MARK: - Shortcuts registration
 
 struct SummitAppShortcuts: AppShortcutsProvider {
@@ -255,6 +292,16 @@ struct SummitAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Spent Today",
             systemImageName: "creditcard.fill"
+        )
+        AppShortcut(
+            intent: AskMoneyIntent(),
+            phrases: [
+                "Ask \(.applicationName) about my money",
+                "Ask my money in \(.applicationName)",
+                "Ask \(.applicationName) a question"
+            ],
+            shortTitle: "Ask Your Money",
+            systemImageName: "sparkle.magnifyingglass"
         )
     }
 }
