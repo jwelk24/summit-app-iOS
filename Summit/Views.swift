@@ -461,13 +461,15 @@ struct SummitChip: View {
 }
 
 struct SummitGlassCard<Content: View>: View {
+    var spacing: CGFloat = 12
+    var padding: CGFloat = 16
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: spacing) {
             content
         }
-        .padding(16)
+        .padding(padding)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(.regularMaterial)
@@ -4631,7 +4633,7 @@ private struct NetWorthHeroCard: View {
     }
 
     var body: some View {
-        SummitGlassCard {
+        SummitGlassCard(spacing: 8, padding: 12) {
             SummitHeroHeader(
                 systemImage: "chart.line.uptrend.xyaxis",
                 label: "Net Worth",
@@ -4647,22 +4649,37 @@ private struct NetWorthHeroCard: View {
                 }
             )
 
-            SummitHeroAmount(
-                caption: netIsPositive ? "Total Net Worth" : "Net Worth",
-                value: currency(netWorth),
-                tint: netTint
-            )
+            Text(currency(netWorth))
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundStyle(
+                    LinearGradient(colors: [netTint, netTint.opacity(0.75)], startPoint: .top, endPoint: .bottom)
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
 
-            SummitCapsuleMeter(fraction: assetFraction, tint: .green)
+            SummitCapsuleMeter(fraction: assetFraction, tint: .green, height: 6)
 
-            HStack(alignment: .top, spacing: 12) {
-                SummitMiniStat(label: "Assets", value: currency(totalAssets), tint: .green)
-                Divider().frame(height: 28)
-                SummitMiniStat(label: "Liabilities", value: "-\(currency(totalLiabilities))", tint: .red)
-                Divider().frame(height: 28)
-                SummitMiniStat(label: "vs \(rangeLabel)", value: deltaVsPast.map { currency($0.delta) } ?? "—", tint: netTint)
+            HStack(spacing: 12) {
+                compactStat("Assets", currency(totalAssets), .green)
+                compactStat("Liabilities", "-\(currency(totalLiabilities))", .red)
+                compactStat("vs \(rangeLabel)", deltaVsPast.map { currency($0.delta) } ?? "—", netTint)
             }
         }
+    }
+
+    private func compactStat(_ label: String, _ value: String, _ tint: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func deltaText(_ d: (delta: Decimal, percent: Double?)) -> String {

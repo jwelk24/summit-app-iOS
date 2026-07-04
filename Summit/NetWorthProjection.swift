@@ -48,34 +48,27 @@ struct NetWorthMilestoneCard: View {
     let milestone: NetWorthMilestone
 
     private var subtitle: String {
+        let monthly = (milestone.monthlyChange >= 0 ? "+" : "") + currency(milestone.monthlyChange) + "/mo"
         if let eta = milestone.etaDate {
-            return "On track for \(currency(milestone.target)) by \(eta.formatted(.dateTime.month(.abbreviated).year()))."
+            return "\(monthly) — on track for \(currency(milestone.target)) by \(eta.formatted(.dateTime.month(.abbreviated).year()))."
         }
         return milestone.monthlyChange > 0
-            ? "Keep it up to reach your next milestone."
+            ? "\(monthly) — keep it up to reach your next milestone."
             : "Grow your net worth to project a date."
     }
 
     var body: some View {
-        SummitGlassCard {
+        SummitGlassCard(spacing: 8, padding: 12) {
             SummitHeroHeader(
                 systemImage: "flag.checkered",
                 label: "Next Milestone",
                 trailing: AnyView(SummitChip(text: currency(milestone.target), systemImage: "target", tint: .accentColor))
             )
-            SummitCapsuleMeter(fraction: milestone.progress, tint: .green)
-            HStack(alignment: .top, spacing: 12) {
-                SummitMiniStat(label: "Now", value: currency(milestone.current), tint: .primary)
-                Divider().frame(height: 28)
-                SummitMiniStat(
-                    label: "Per Month",
-                    value: (milestone.monthlyChange >= 0 ? "+" : "") + currency(milestone.monthlyChange),
-                    tint: milestone.monthlyChange >= 0 ? .green : .red
-                )
-            }
+            SummitCapsuleMeter(fraction: milestone.progress, tint: .green, height: 6)
             Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
     }
 
