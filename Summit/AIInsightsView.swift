@@ -28,42 +28,50 @@ struct AIInsightsView: View {
     @State private var coachInsights: [CoachInsight] = []
     @State private var coachTip: String?
 
+    @State private var showingWeeklyReview = false
+    @State private var showingWrapped = false
+
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 12) {
                 if entitlements.canUseAIInsights {
-                    VStack(spacing: 12) {
-                        InsightsHeroCard(availability: availability, digestHeadline: digest?.headline)
-                            .padding(.horizontal)
-                            .padding(.top, 8)
-
-                        List {
-                            coachSection
-                            switch availability {
-                            case .available:
-                                askSection
-                                digestSection
-                                smartCategorizeSection
-                                aboutSection
-                            case .unavailable(let reason):
-                                unavailableSection(reason)
-                            }
-                        }
-                        .summitListBackground()
-                    }
-                } else {
-                    LockedFeatureCard(feature: .aiInsights) {
-                        showingPaywall = true
-                    }
-                    .frame(maxHeight: .infinity)
-                    .summitListBackground()
+                    InsightsHeroCard(availability: availability, digestHeadline: digest?.headline)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
                 }
+
+                List {
+                    // Free, deterministic sections — available on every tier.
+                    checkInSection
+                    coachSection
+
+                    if entitlements.canUseAIInsights {
+                        switch availability {
+                        case .available:
+                            askSection
+                            digestSection
+                            smartCategorizeSection
+                            aboutSection
+                        case .unavailable(let reason):
+                            unavailableSection(reason)
+                        }
+                    } else {
+                        premiumUpsellSection
+                    }
+                }
+                .summitListBackground()
             }
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
             .task { await loadCoach() }
             .sheet(isPresented: $showingPaywall) {
                 PaywallView()
+            }
+            .sheet(isPresented: $showingWeeklyReview) {
+                WeeklyReviewView()
+            }
+            .sheet(isPresented: $showingWrapped) {
+                WrappedView()
             }
             .alert("AI Error", isPresented: errorBinding, presenting: errorMessage) { _ in
                 Button("OK") { errorMessage = nil }
@@ -74,6 +82,63 @@ struct AIInsightsView: View {
     }
 
     // MARK: Sections
+
+    private var checkInSection: some View {
+        Section {
+            Button {
+                showingWeeklyReview = true
+            } label: {
+                HStack {
+                    Label("Start Weekly Review", systemImage: "checklist")
+                    Spacer()
+                    if WeeklyReviewView.currentStreak > 1 {
+                        Label("\(WeeklyReviewView.currentStreak)w", systemImage: "flame.fill")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.orange)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .accessibilityIdentifier("weeklyReviewButton")
+
+            Button {
+                showingWrapped = true
+            } label: {
+                HStack {
+                    Label("Summit Wrapped", systemImage: "sparkles.rectangle.stack")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .accessibilityIdentifier("wrappedButton")
+        } header: {
+            SummitSectionHeader(title: "Check-Ins", systemImage: "calendar.badge.checkmark")
+        } footer: {
+            Text("A 3-minute weekly tidy-up, and your year in review.")
+        }
+        .summitRowBackground()
+        .buttonStyle(.plain)
+    }
+
+    private var premiumUpsellSection: some View {
+        Section {
+            Button {
+                showingPaywall = true
+            } label: {
+                Label("Unlock AI insights — Ask Your Money, weekly digests, smart categorization", systemImage: "lock.fill")
+                    .font(.subheadline)
+            }
+        } header: {
+            SummitSectionHeader(title: "Apple Intelligence", systemImage: "sparkles")
+        } footer: {
+            Text("On-device AI features are part of Premium. Everything above is free.")
+        }
+        .summitRowBackground()
+    }
 
     private var coachSection: some View {
         Section {

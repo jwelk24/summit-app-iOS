@@ -36,6 +36,12 @@ struct WeeklyReviewView: View {
     private static let lastCompletedKey = "weeklyReview.lastCompleted"
     private static let streakKey = "weeklyReview.streak"
 
+    /// Streak from the last completed review, for entry points that want to
+    /// show it (e.g. the Insights tab row).
+    static var currentStreak: Int {
+        UserDefaults.standard.integer(forKey: streakKey)
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {

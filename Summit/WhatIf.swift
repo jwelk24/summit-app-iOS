@@ -134,8 +134,6 @@ enum WhatIfSimulator {
 // MARK: - View
 
 struct WhatIfView: View {
-    @Environment(\.dismiss) private var dismiss
-
     @Query private var accounts: [AccountModel]
     @Query private var transactions: [TransactionModel]
     @Query private var scheduled: [ScheduledItemModel]
@@ -191,9 +189,6 @@ struct WhatIfView: View {
         .navigationTitle("What If…")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Done") { dismiss() }
-            }
             ToolbarItem(placement: .primaryAction) {
                 Button { showingEditor = true } label: {
                     Label("Add Change", systemImage: "plus.circle")

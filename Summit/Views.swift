@@ -22,9 +22,6 @@ struct BudgetView: View {
     @State private var showingAlerts = false
     @State private var showingPrivacy = false
     @State private var showingSettleUp = false
-    @State private var showingWhatIf = false
-    @State private var showingWeeklyReview = false
-    @State private var showingWrapped = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -275,27 +272,6 @@ struct BudgetView: View {
                         .accessibilityIdentifier("smartAlertsButton")
 
                         Button {
-                            showingWhatIf = true
-                        } label: {
-                            Label("What-If Simulator", systemImage: "arrow.triangle.branch")
-                        }
-                        .accessibilityIdentifier("whatIfButton")
-
-                        Button {
-                            showingWeeklyReview = true
-                        } label: {
-                            Label("Weekly Review", systemImage: "checklist")
-                        }
-                        .accessibilityIdentifier("weeklyReviewButton")
-
-                        Button {
-                            showingWrapped = true
-                        } label: {
-                            Label("Summit Wrapped", systemImage: "sparkles.rectangle.stack")
-                        }
-                        .accessibilityIdentifier("wrappedButton")
-
-                        Button {
                             showingRename = true
                         } label: {
                             Label("Customize Tabs", systemImage: "rectangle.3.group")
@@ -356,17 +332,6 @@ struct BudgetView: View {
             }
             .sheet(isPresented: $showingSettleUp) {
                 SettleUpView()
-            }
-            .sheet(isPresented: $showingWhatIf) {
-                NavigationStack {
-                    WhatIfView()
-                }
-            }
-            .sheet(isPresented: $showingWeeklyReview) {
-                WeeklyReviewView()
-            }
-            .sheet(isPresented: $showingWrapped) {
-                WrappedView()
             }
             .accessibilityIdentifier("budgetScreen")
         }
@@ -3473,6 +3438,12 @@ struct HorizonView: View {
                     } label: {
                         Label("Forecast", systemImage: "chart.xyaxis.line")
                     }
+                    NavigationLink {
+                        WhatIfView()
+                    } label: {
+                        Label("What-If Simulator", systemImage: "arrow.triangle.branch")
+                    }
+                    .accessibilityIdentifier("whatIfButton")
                     Button {
                         showingSubscriptions = true
                     } label: {
