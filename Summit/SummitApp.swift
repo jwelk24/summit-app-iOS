@@ -77,6 +77,22 @@ struct SummitApp: App {
                 }
         }
         .modelContainer(sharedModelContainer)
+        .commands {
+            // Menu bar on the Mac (Designed for iPad) and the iPad keyboard HUD.
+            CommandGroup(replacing: .newItem) {
+                Button("New Transaction") {
+                    NotificationCenter.default.post(name: .summitQuickAdd, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: .command)
+
+                Button("Sync Now") {
+                    Task { @MainActor in
+                        await SyncService.shared.syncAccounts(context: sharedModelContainer.mainContext)
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+            }
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background:

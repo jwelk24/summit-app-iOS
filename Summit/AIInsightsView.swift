@@ -61,6 +61,7 @@ struct AIInsightsView: View {
                 }
                 .summitListBackground()
             }
+            .summitReadableWidth()
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
             .task { await loadCoach() }

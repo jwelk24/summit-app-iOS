@@ -154,6 +154,7 @@ struct CashFlowForecastView: View {
             }
             scheduledScenarioSection
         }
+        .summitReadableWidth()
         .navigationTitle("Forecast")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

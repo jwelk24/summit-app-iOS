@@ -186,6 +186,7 @@ struct WhatIfView: View {
             changesSection
         }
         .summitListBackground()
+        .summitReadableWidth()
         .navigationTitle("What If…")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

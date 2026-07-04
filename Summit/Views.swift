@@ -222,6 +222,7 @@ struct BudgetView: View {
                     }
                 }
             }
+            .summitReadableWidth()
             .navigationTitle(budgetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1783,6 +1784,7 @@ struct TransactionsView: View {
                     }
                 }
             }
+            .summitReadableWidth()
             .navigationTitle(isSelecting
                              ? "\(selection.count) Selected"
                              : transactionsTitle)
@@ -2725,6 +2727,7 @@ struct NetWorthView: View {
                 }
                 .summitListBackground()
             }
+            .summitReadableWidth()
             .navigationTitle(netWorthTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -3425,6 +3428,7 @@ struct HorizonView: View {
                 }
                 .summitListBackground()
             }
+            .summitReadableWidth()
             .navigationTitle(horizonTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -5477,6 +5481,7 @@ struct ReportsView: View {
                 }
                 .summitListBackground()
             }
+            .summitReadableWidth()
             .navigationTitle(reportsTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

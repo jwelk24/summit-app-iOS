@@ -33,6 +33,11 @@ enum TabKind: String, CaseIterable, Identifiable {
 
 let defaultTabOrder = TabKind.allCases.map(\.rawValue).joined(separator: ",")
 
+extension Notification.Name {
+    /// Posted by the menu-bar "New Transaction" command (⌘N); RootView presents the editor.
+    static let summitQuickAdd = Notification.Name("summit.quickAdd")
+}
+
 struct RootView: View {
     @AppStorage("tabOrder") private var tabOrderRaw: String = defaultTabOrder
     @AppStorage("appAccentHex") private var appAccentHex: String = ""
@@ -50,11 +55,15 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             ForEach(orderedTabs) { tab in
-                tabContent(for: tab)
-                    .tag(tab)
-                    .tabItem { TabLabel(kind: tab) }
+                Tab(value: tab) {
+                    tabContent(for: tab)
+                } label: {
+                    TabLabel(kind: tab)
+                }
             }
         }
+        // Tab bar on iPhone; sidebar on iPad and the Mac (Designed for iPad).
+        .tabViewStyle(.sidebarAdaptable)
         .tint(Color(hex: appAccentHex) ?? .accentColor)
         .monospacedDigit()
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -68,6 +77,10 @@ struct RootView: View {
             if url.scheme == "summit", url.host == "add" {
                 showingQuickAdd = true
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .summitQuickAdd)) { _ in
+            // ⌘N from the menu bar (Mac / iPad hardware keyboard).
+            showingQuickAdd = true
         }
     }
 
@@ -171,6 +184,29 @@ extension View {
 
     /// Apply to each `Section` so its rows pick up the user's row background color.
     func summitRowBackground() -> some View { modifier(SummitRowBackground()) }
+
+    /// Apply to each tab's root container (inside its NavigationStack) so
+    /// content stays a readable width on iPad/Mac instead of stretching
+    /// edge-to-edge. No-op in compact width (iPhone portrait).
+    func summitReadableWidth() -> some View { modifier(SummitReadableWidth()) }
+}
+
+/// Caps content width on wide layouts and fills the side gutters with the
+/// list background color so the cap reads as margins, not a cropped view.
+struct SummitReadableWidth: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var hSize
+    @AppStorage("appBackgroundHex") private var appBackgroundHex: String = ""
+
+    func body(content: Content) -> some View {
+        if hSize == .regular {
+            content
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
+                .background((Color(hex: appBackgroundHex) ?? Color(.systemGroupedBackground)).ignoresSafeArea())
+        } else {
+            content
+        }
+    }
 }
 
 /// Reads the user's chosen row background color from AppStorage and applies `.listRowBackground`.
