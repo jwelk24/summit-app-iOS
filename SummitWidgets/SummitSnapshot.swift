@@ -24,8 +24,15 @@ struct SummitSnapshot: Codable {
     let budgetAssigned: Double
     let budgetSpent: Double
     let upcomingBills: [BillSummary]
+    struct QuickLogSuggestion: Codable, Hashable {
+        let merchant: String
+        let amount: Double
+    }
+
     let safeToSpendToday: Double?
     let safePerDay: Double?
+    /// Frequent merchants + typical amounts for the one-tap Quick Log widget.
+    let quickLog: [QuickLogSuggestion]?
 
     var netWorth: Double { totalAssets - totalLiabilities }
     var budgetRemaining: Double { budgetAssigned - budgetSpent }
@@ -67,7 +74,11 @@ struct SummitSnapshot: Codable {
                 BillSummary(id: UUID(), name: "Utilities", amount: -180, date: Date().addingTimeInterval(86_400 * 14))
             ],
             safeToSpendToday: 48,
-            safePerDay: 62
+            safePerDay: 62,
+            quickLog: [
+                QuickLogSuggestion(merchant: "Coffee", amount: 6),
+                QuickLogSuggestion(merchant: "Groceries", amount: 84),
+            ]
         )
     }
 }

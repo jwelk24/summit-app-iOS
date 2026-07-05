@@ -104,6 +104,9 @@ struct SummitApp: App {
                 }
             case .active:
                 Task { @MainActor in
+                    if QuickLogIngest.ingest(context: sharedModelContainer.mainContext) > 0 {
+                        SummitSnapshotWriter.write(context: sharedModelContainer.mainContext)
+                    }
                     SpendingTodayActivityManager.startOrUpdate(context: sharedModelContainer.mainContext)
                     await SupabaseService.shared.loadUser()
                     await HouseholdService.shared.refresh()

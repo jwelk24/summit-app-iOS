@@ -26,9 +26,16 @@ nonisolated struct SummitSnapshot: Codable {
     let budgetAssigned: Double
     let budgetSpent: Double
     let upcomingBills: [BillSummary]
+    struct QuickLogSuggestion: Codable, Hashable {
+        let merchant: String
+        let amount: Double
+    }
+
     /// Optional so older snapshots (written before this field existed) still decode.
     let safeToSpendToday: Double?
     let safePerDay: Double?
+    /// Frequent merchants + typical amounts for the one-tap Quick Log widget.
+    let quickLog: [QuickLogSuggestion]?
 
     var netWorth: Double { totalAssets - totalLiabilities }
     var budgetRemaining: Double { budgetAssigned - budgetSpent }
@@ -147,6 +154,21 @@ enum SummitSnapshotWriter {
             now: now
         )
 
+        // Most-frequent merchants of the last 30 days (2+ visits), with the
+        // median charge — the widget's one-tap logging buttons.
+        let last30 = cal.date(byAdding: .day, value: -30, to: now) ?? now
+        let quickLog: [SummitSnapshot.QuickLogSuggestion] = Dictionary(
+            grouping: txs.filter { $0.date >= last30 && $0.amount < 0 }
+        ) { MerchantCleaner.clean($0.merchant) }
+        .compactMap { merchant, group -> (String, Int, Double)? in
+            guard group.count >= 2, !merchant.isEmpty else { return nil }
+            let amounts = group.map { NSDecimalNumber(decimal: -$0.amount).doubleValue }.sorted()
+            return (merchant, group.count, amounts[amounts.count / 2])
+        }
+        .sorted { $0.1 > $1.1 }
+        .prefix(4)
+        .map { SummitSnapshot.QuickLogSuggestion(merchant: $0.0, amount: $0.2) }
+
         return SummitSnapshot(
             lastUpdated: Date(),
             currencyCode: currency,
@@ -158,7 +180,8 @@ enum SummitSnapshotWriter {
             budgetSpent: NSDecimalNumber(decimal: spentTotal).doubleValue,
             upcomingBills: upcoming,
             safeToSpendToday: safe.hasSpendableAccount ? NSDecimalNumber(decimal: safe.safeToday).doubleValue : nil,
-            safePerDay: safe.hasSpendableAccount ? NSDecimalNumber(decimal: safe.perDay).doubleValue : nil
+            safePerDay: safe.hasSpendableAccount ? NSDecimalNumber(decimal: safe.perDay).doubleValue : nil,
+            quickLog: quickLog
         )
     }
 }
