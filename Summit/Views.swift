@@ -22,6 +22,7 @@ struct BudgetView: View {
     @State private var showingAlerts = false
     @State private var showingPrivacy = false
     @State private var showingSettleUp = false
+    @State private var showingBudgetDraft = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -93,6 +94,19 @@ struct BudgetView: View {
             return "\(engine.selectedMonth)/\(engine.selectedYear)"
         }
         return d.formatted(.dateTime.month(.wide).year())
+    }
+
+    /// Offer the draft-from-history flow when this month has no budget yet but
+    /// there's enough categorized spending to draft from.
+    private var shouldOfferDraft: Bool {
+        let hasBudget = budgetMonth?.allocations.contains { $0.amount != 0 } ?? false
+        guard !hasBudget else { return false }
+        let cal = Calendar.current
+        guard let start = cal.date(byAdding: .month, value: -3, to: .now) else { return false }
+        let categorized = transactions.filter {
+            $0.date >= start && $0.cashFlowKind == .expense && ($0.category != nil || !$0.splits.isEmpty)
+        }
+        return categorized.count >= 15
     }
 
     private var monthOutflow: Decimal {
@@ -198,6 +212,33 @@ struct BudgetView: View {
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
+                            if shouldOfferDraft {
+                                Section {
+                                    Button {
+                                        showingBudgetDraft = true
+                                    } label: {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: "wand.and.sparkles")
+                                                .foregroundStyle(.tint)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("Draft your budget from your spending")
+                                                    .font(.subheadline.weight(.medium))
+                                                Text("Pre-fill this month from your 3-month averages — adjust before applying.")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Spacer()
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("budgetDraftBanner")
+                                }
+                                .summitRowBackground()
+                            }
+
                             ForEach(groups.sorted(by: { $0.sort < $1.sort })) { group in
                                 Section(group.name) {
                                     ForEach(categories.filter { $0.group?.id == group.id }.sorted(by: { $0.sort < $1.sort })) { cat in
@@ -249,6 +290,13 @@ struct BudgetView: View {
                         } label: {
                             Label("Roll to Next Month", systemImage: "arrow.right.circle")
                         }
+
+                        Button {
+                            showingBudgetDraft = true
+                        } label: {
+                            Label("Draft Budget from History", systemImage: "wand.and.sparkles")
+                        }
+                        .accessibilityIdentifier("budgetDraftButton")
 
                         Divider()
 
@@ -333,6 +381,9 @@ struct BudgetView: View {
             }
             .sheet(isPresented: $showingSettleUp) {
                 SettleUpView()
+            }
+            .sheet(isPresented: $showingBudgetDraft) {
+                BudgetDraftView()
             }
             .accessibilityIdentifier("budgetScreen")
         }
