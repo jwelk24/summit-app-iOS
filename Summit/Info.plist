@@ -4,6 +4,8 @@
 <dict>
 	<key>SummitPlaidBackendURL</key>
 	<string>https://summit-backend-rszx.onrender.com</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Summit uses Face ID to unlock the app and keep your finances private.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

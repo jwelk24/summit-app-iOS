@@ -46,6 +46,9 @@ struct RootView: View {
     @State private var selectedTab: TabKind = .budget
     @State private var showingQuickAdd = false
 
+    @Environment(\.scenePhase) private var scenePhase
+    private var appLock = AppLockService.shared
+
     private var orderedTabs: [TabKind] {
         let saved = tabOrderRaw.split(separator: ",").compactMap { TabKind(rawValue: String($0)) }
         let missing = TabKind.allCases.filter { !saved.contains($0) }
@@ -81,6 +84,14 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .summitQuickAdd)) { _ in
             // ⌘N from the menu bar (Mac / iPad hardware keyboard).
             showingQuickAdd = true
+        }
+        .overlay {
+            if appLock.isLocked {
+                AppLockScreen()
+            } else if appLock.isEnabled && scenePhase != .active {
+                // Keeps balances out of the app-switcher snapshot.
+                AppPrivacyShield()
+            }
         }
     }
 

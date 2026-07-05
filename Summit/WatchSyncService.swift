@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(WatchConnectivity)
 import WatchConnectivity
 
 /// Sends the latest `SummitSnapshot` to the paired Apple Watch via
@@ -42,3 +43,16 @@ final class WatchSyncService: NSObject, WCSessionDelegate {
         session.activate()
     }
 }
+
+#else
+
+/// No-op stand-in for destinations without WatchConnectivity
+/// (Mac / Vision "Designed for iPad" builds).
+final class WatchSyncService {
+    static let shared = WatchSyncService()
+    private init() {}
+    func start() {}
+    func send(_ snapshot: SummitSnapshot) {}
+}
+
+#endif

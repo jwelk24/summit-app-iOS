@@ -221,6 +221,7 @@ struct PrivacyView: View {
     @State private var isWorking = false
     @AppStorage("merchantLogosEnabled") private var merchantLogos = false
     @State private var showingLogoConsent = false
+    @State private var appLock = AppLockService.shared
 
     private var canDeleteCloud: Bool {
         SupabaseService.shared.isAuthenticated && HouseholdService.shared.currentHousehold != nil
@@ -238,6 +239,19 @@ struct PrivacyView: View {
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
+                }
+                .summitRowBackground()
+
+                Section {
+                    Toggle("Require \(AppLockService.biometryLabel) to open Summit", isOn: Binding(
+                        get: { appLock.isEnabled },
+                        set: { newValue in Task { await setAppLock(newValue) } }
+                    ))
+                    .accessibilityIdentifier("appLockToggle")
+                } header: {
+                    Text("App Lock")
+                } footer: {
+                    Text("Locks Summit whenever you leave it, and hides your balances in the app switcher. Unlock with \(AppLockService.biometryLabel) or your device passcode.")
                 }
                 .summitRowBackground()
 
@@ -360,6 +374,22 @@ struct PrivacyView: View {
             } message: {
                 Text(status ?? "")
             }
+        }
+    }
+
+    /// Enabling requires a successful authentication first, so nobody can turn
+    /// the lock on (or get locked out) on a device that can't unlock it.
+    private func setAppLock(_ enable: Bool) async {
+        guard enable else {
+            appLock.isEnabled = false
+            return
+        }
+        guard AppLockService.isAuthAvailable else {
+            status = "Set a device passcode (or Face ID) in Settings first — otherwise Summit couldn't be unlocked."
+            return
+        }
+        if await appLock.authenticate(reason: "Confirm it's you to turn on App Lock.") {
+            appLock.isEnabled = true
         }
     }
 

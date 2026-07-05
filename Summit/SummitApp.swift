@@ -97,6 +97,7 @@ struct SummitApp: App {
             switch newPhase {
             case .background:
                 Task { @MainActor in
+                    AppLockService.shared.lockIfEnabled()
                     SummitSnapshotWriter.write(context: sharedModelContainer.mainContext)
                     SpendingTodayActivityManager.startOrUpdate(context: sharedModelContainer.mainContext)
                     await RealtimeService.shared.stop()
