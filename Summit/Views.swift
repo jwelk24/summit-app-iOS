@@ -23,6 +23,7 @@ struct BudgetView: View {
     @State private var showingPrivacy = false
     @State private var showingSettleUp = false
     @State private var showingBudgetDraft = false
+    @State private var showingPaycheckPlan = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
 
@@ -298,6 +299,13 @@ struct BudgetView: View {
                         }
                         .accessibilityIdentifier("budgetDraftButton")
 
+                        Button {
+                            showingPaycheckPlan = true
+                        } label: {
+                            Label("Plan a Paycheck", systemImage: "banknote")
+                        }
+                        .accessibilityIdentifier("paycheckPlanButton")
+
                         Divider()
 
                         Button {
@@ -384,6 +392,9 @@ struct BudgetView: View {
             }
             .sheet(isPresented: $showingBudgetDraft) {
                 BudgetDraftView()
+            }
+            .sheet(isPresented: $showingPaycheckPlan) {
+                PaycheckPlanView()
             }
             .accessibilityIdentifier("budgetScreen")
         }
