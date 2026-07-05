@@ -3512,6 +3512,12 @@ struct HorizonView: View {
                         Label("What-If Simulator", systemImage: "arrow.triangle.branch")
                     }
                     .accessibilityIdentifier("whatIfButton")
+                    NavigationLink {
+                        BillCalendarView()
+                    } label: {
+                        Label("Bill Calendar", systemImage: "calendar")
+                    }
+                    .accessibilityIdentifier("billCalendarButton")
                     Button {
                         showingSubscriptions = true
                     } label: {
@@ -4506,7 +4512,7 @@ private struct SnapshotEditor: View {
 
 // MARK: - Scheduled Editor
 
-private struct ScheduledEditor: View {
+struct ScheduledEditor: View {
     let editing: ScheduledItemModel?
 
     @Environment(\.modelContext) private var context
