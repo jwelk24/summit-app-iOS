@@ -5360,6 +5360,7 @@ struct ReportsView: View {
     @State private var customEnd: Date = .now
     @State private var showingPaywall = false
     @State private var exportedURL: URL?
+    @State private var showingTaxPack = false
     @State private var exportError: String?
 
     private var period: ReportPeriod {
@@ -5536,6 +5537,14 @@ struct ReportsView: View {
             .navigationTitle(reportsTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        showingTaxPack = true
+                    } label: {
+                        Label("Tax Pack", systemImage: "percent")
+                    }
+                    .accessibilityIdentifier("taxPackButton")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         if entitlements.canExportReports {
@@ -5568,6 +5577,7 @@ struct ReportsView: View {
                 }
             }
             .sheet(isPresented: $showingPaywall) { PaywallView() }
+            .sheet(isPresented: $showingTaxPack) { TaxPackView() }
             .sheet(item: Binding(
                 get: { exportedURL.map { ExportedDoc(url: $0) } },
                 set: { exportedURL = $0?.url }
