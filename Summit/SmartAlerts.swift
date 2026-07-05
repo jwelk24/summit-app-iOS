@@ -25,6 +25,7 @@ final class SmartAlertsService {
     fileprivate static let lowBalanceEnabledKey = "alerts.lowbalance.enabled"
     fileprivate static let lowBalanceThresholdKey = "alerts.lowbalance.threshold"
     fileprivate static let priceChangeEnabledKey = "alerts.pricechange.enabled"
+    fileprivate static let anomalyEnabledKey = "alerts.anomaly.enabled"
 
     private(set) var isAuthorized: Bool = false
     private(set) var lastCheckSent: Int = 0
@@ -83,6 +84,11 @@ final class SmartAlertsService {
         set { defaults.set(newValue, forKey: Self.priceChangeEnabledKey) }
     }
 
+    var anomalyAlertsEnabled: Bool {
+        get { defaults.object(forKey: Self.anomalyEnabledKey) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Self.anomalyEnabledKey) }
+    }
+
     private init() {}
 
     // MARK: Permission
@@ -132,6 +138,9 @@ final class SmartAlertsService {
             }
             if priceChangeAlertsEnabled {
                 sent += await runPriceChangeChecks(context: context)
+            }
+            if anomalyAlertsEnabled {
+                sent += await runAnomalyChecks(context: context)
             }
         }
         lastCheckSent = sent
@@ -303,6 +312,72 @@ final class SmartAlertsService {
         return sent
     }
 
+    // MARK: Anomaly detection (merchant spikes + duplicate charges)
+
+    /// Statistical, fully on-device checks over recent charges:
+    /// - Spike: a charge ≥3× your median at that merchant (needs ≥3 priors).
+    /// - Duplicate: same merchant + same amount within 48 hours.
+    /// Deduped per transaction (pair), so each anomaly alerts once.
+    private func runAnomalyChecks(context: ModelContext) async -> Int {
+        guard let all = try? context.fetch(FetchDescriptor<TransactionModel>()) else { return 0 }
+        let expenses = all.filter { $0.amount < 0 }
+        let byMerchant = Dictionary(grouping: expenses) { SubscriptionDetector.canonicalMerchant($0.merchant) }
+
+        let cutoff = Date().addingTimeInterval(-3 * 24 * 3600)
+        let recent = expenses.filter { $0.date >= cutoff }
+        var sent = 0
+
+        for tx in recent {
+            let amount = -tx.amount
+            let canonical = SubscriptionDetector.canonicalMerchant(tx.merchant)
+            let peers = byMerchant[canonical] ?? []
+
+            // Spike vs. this merchant's own history.
+            let priors = peers.filter { $0.id != tx.id && $0.date < tx.date }.map { -$0.amount }.sorted()
+            if priors.count >= 3 {
+                let median = priors[priors.count / 2]
+                // Skip if the fixed-threshold alert already covers this charge.
+                let coveredByFixed = unusualAlertsEnabled && amount >= unusualAmountThreshold
+                if !coveredByFixed, median > 0, amount >= median * 3, amount - median >= 20 {
+                    let key = "alert.anomaly.spike.\(tx.id.uuidString)"
+                    if !defaults.bool(forKey: key) {
+                        let multiple = Int((NSDecimalNumber(decimal: amount).doubleValue
+                                            / NSDecimalNumber(decimal: median).doubleValue).rounded())
+                        await scheduleNotification(
+                            title: "Higher than your usual",
+                            body: "\(tx.merchant): \(currencyString(amount)) — about \(multiple)× your typical \(currencyString(median)) there.",
+                            identifier: key
+                        )
+                        defaults.set(true, forKey: key)
+                        sent += 1
+                    }
+                }
+            }
+
+            // Possible duplicate charge.
+            guard amount >= 5 else { continue }
+            let twin = peers.first {
+                $0.id != tx.id && $0.amount == tx.amount
+                    && abs($0.date.timeIntervalSince(tx.date)) <= 48 * 3600
+            }
+            if let twin {
+                // One alert per pair regardless of which side we see first.
+                let pair = [tx.id.uuidString, twin.id.uuidString].sorted().joined(separator: ".")
+                let key = "alert.anomaly.dup.\(pair)"
+                if !defaults.bool(forKey: key) {
+                    await scheduleNotification(
+                        title: "Possible duplicate charge",
+                        body: "\(tx.merchant) charged \(currencyString(amount)) twice within 48 hours. Worth a look.",
+                        identifier: key
+                    )
+                    defaults.set(true, forKey: key)
+                    sent += 1
+                }
+            }
+        }
+        return sent
+    }
+
     // MARK: Low-balance projection
 
     /// Projects checking + savings over the next 30 days using scheduled bills
@@ -413,6 +488,7 @@ struct SmartAlertsView: View {
             if entitlements.canUseSmartAlerts {
                 budgetSection
                 unusualSection
+                anomalySection
                 priceChangeSection
             } else {
                 premiumUpsellSection
@@ -451,6 +527,20 @@ struct SmartAlertsView: View {
         }
     }
 
+    private var anomalySection: some View {
+        Section {
+            Toggle("Flag charges that look off", isOn: Binding(
+                get: { service.anomalyAlertsEnabled },
+                set: { service.anomalyAlertsEnabled = $0 }
+            ))
+            .accessibilityIdentifier("anomalyAlertsToggle")
+        } header: {
+            Text("Anomaly Detection")
+        } footer: {
+            Text("Summit compares each charge to your own history — way above your usual at that merchant, or the same amount charged twice within 48 hours — and flags it. Computed entirely on your device.")
+        }
+    }
+
     private var priceChangeSection: some View {
         Section {
             Toggle("Alert when a subscription price changes", isOn: Binding(
@@ -476,7 +566,7 @@ struct SmartAlertsView: View {
         } header: {
             Text("More Alerts")
         } footer: {
-            Text("Premium adds category-overspend warnings and large / new-merchant charge alerts.")
+            Text("Premium adds category-overspend warnings, large / new-merchant charge alerts, and anomaly detection (unusual amounts and duplicate charges).")
         }
     }
 
