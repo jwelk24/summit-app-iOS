@@ -5488,13 +5488,25 @@ struct ReportsView: View {
     @State private var exportedURL: URL?
     @State private var showingTaxPack = false
     @State private var exportError: String?
+    @State private var filterTag: String? = nil
+
+    private var allTags: [String] {
+        var seen = Set<String>()
+        for tx in transactions { for tag in tx.tags { seen.insert(tag) } }
+        return seen.sorted()
+    }
+
+    private var filteredTransactions: [TransactionModel] {
+        guard let tag = filterTag else { return transactions }
+        return transactions.filter { $0.tags.contains(tag) }
+    }
 
     private var period: ReportPeriod {
         ReportPeriod.resolve(range, customStart: customStart, customEnd: customEnd)
     }
 
     private var summary: ReportSummary {
-        ReportBuilder.build(transactions: transactions, period: period)
+        ReportBuilder.build(transactions: filteredTransactions, period: period)
     }
 
     private var spendingByCategory: [CategorySpending] {
@@ -5513,7 +5525,7 @@ struct ReportsView: View {
             guard let y = comps.year, let m = comps.month else { continue }
             var income: Decimal = 0
             var spending: Decimal = 0
-            for tx in transactions where cal.component(.year, from: tx.date) == y && cal.component(.month, from: tx.date) == m {
+            for tx in filteredTransactions where cal.component(.year, from: tx.date) == y && cal.component(.month, from: tx.date) == m {
                 switch tx.cashFlowKind {
                 case .income: income += tx.amount
                 case .expense: spending += abs(tx.amount)
@@ -5570,6 +5582,29 @@ struct ReportsView: View {
                     }
                 }
                 .summitRowBackground()
+
+                let tags = allTags
+                if !tags.isEmpty {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ReportTagChip(label: "All", selected: filterTag == nil) {
+                                    filterTag = nil
+                                }
+                                ForEach(tags, id: \.self) { tag in
+                                    ReportTagChip(label: "#\(tag)", selected: filterTag == tag) {
+                                        filterTag = filterTag == tag ? nil : tag
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 2)
+                            .padding(.vertical, 4)
+                        }
+                    } header: {
+                        SummitSectionHeader(title: filterTag == nil ? "Filter by Tag" : "Filtered: #\(filterTag!)", systemImage: "tag.fill")
+                    }
+                    .summitRowBackground()
+                }
 
                 let flow = SpendingFlowData(summary: summary)
                 if flow.hasData {
@@ -5741,6 +5776,24 @@ struct ReportsView: View {
         }
     }
     #endif
+}
+
+private struct ReportTagChip: View {
+    let label: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(selected ? Color.accentColor : Color.accentColor.opacity(0.12), in: Capsule())
+                .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(Color.accentColor))
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct ExportedDoc: Identifiable {
