@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import Charts
 
 // MARK: - Model
 
@@ -36,6 +37,7 @@ struct FinancialHealthScore {
 
     var total: Int { pillars.reduce(0) { $0 + $1.points } }
 
+
     var grade: String {
         switch total {
         case 80...: return "Excellent"
@@ -53,6 +55,13 @@ struct FinancialHealthScore {
         default: return .red
         }
     }
+}
+
+/// One data point in the 6-month score trend chart.
+struct HealthScorePoint: Identifiable {
+    let id: Int
+    let label: String
+    let score: Int
 }
 
 // MARK: - Calculator
@@ -232,12 +241,19 @@ struct FinancialHealthTile: View {
 
     @State private var showingDetail = false
 
-    private var score: FinancialHealthScore {
-        FinancialHealthCalculator.compute(transactions: transactions, accounts: accounts)
+    private var scoreAndDelta: (score: FinancialHealthScore, delta: Int?) {
+        let current = FinancialHealthCalculator.compute(transactions: transactions, accounts: accounts)
+        guard current.hasData,
+              let lastMonth = Calendar.current.date(byAdding: .month, value: -1, to: Date()) else {
+            return (current, nil)
+        }
+        let prev = FinancialHealthCalculator.compute(transactions: transactions, accounts: accounts, now: lastMonth)
+        let delta = prev.hasData ? current.total - prev.total : nil
+        return (current, delta)
     }
 
     var body: some View {
-        let score = score
+        let (score, delta) = scoreAndDelta
         Button {
             showingDetail = true
         } label: {
@@ -250,16 +266,25 @@ struct FinancialHealthTile: View {
                     if score.hasData {
                         HStack(spacing: 8) {
                             HealthScoreRing(score: score.total, tint: score.tint, lineWidth: 4, size: 30)
-                            Text(score.grade)
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(score.tint)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 4) {
+                                    Text(score.grade)
+                                        .font(.title3.weight(.semibold))
+                                        .foregroundStyle(score.tint)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
+                                    if let delta {
+                                        Text(delta >= 0 ? "+\(delta)" : "\(delta)")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(delta >= 0 ? Color.green : Color.red)
+                                    }
+                                }
+                                Text(headline(for: score))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
-                        Text(headline(for: score))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
                     } else {
                         Text("—")
                             .font(.title3.weight(.semibold))
@@ -280,7 +305,6 @@ struct FinancialHealthTile: View {
         }
     }
 
-    /// Calls out the weakest pillar so the tile always says what to do next.
     private func headline(for score: FinancialHealthScore) -> String {
         guard let weakest = score.pillars.min(by: { $0.fraction < $1.fraction }) else { return "" }
         if weakest.fraction >= 0.75 { return "All pillars strong" }
@@ -300,17 +324,44 @@ struct FinancialHealthDetailView: View {
         FinancialHealthCalculator.compute(transactions: transactions, accounts: accounts)
     }
 
+    private var scoreHistory: [HealthScorePoint] {
+        let cal = Calendar.current
+        let now = Date()
+        var result: [HealthScorePoint] = []
+        for offset in stride(from: 5, through: 0, by: -1) {
+            guard let monthDate = cal.date(byAdding: .month, value: -offset, to: now) else { continue }
+            let snap = FinancialHealthCalculator.compute(transactions: transactions, accounts: accounts, now: monthDate)
+            guard snap.hasData else { continue }
+            let label = monthDate.formatted(.dateTime.month(.abbreviated))
+            result.append(HealthScorePoint(id: 5 - offset, label: label, score: snap.total))
+        }
+        return result
+    }
+
     var body: some View {
         let score = score
+        let history = scoreHistory
+        let delta: Int? = history.count >= 2 ? history[history.count - 1].score - history[history.count - 2].score : nil
+        let yMin = max(0, (history.map(\.score).min() ?? 0) - 10)
+        let yMax = min(100, (history.map(\.score).max() ?? 100) + 10)
+
         NavigationStack {
             List {
                 Section {
                     HStack(spacing: 16) {
                         HealthScoreRing(score: score.total, tint: score.tint, lineWidth: 9, size: 92)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(score.grade)
-                                .font(.title2.weight(.semibold))
-                                .foregroundStyle(score.tint)
+                            HStack(spacing: 6) {
+                                Text(score.grade)
+                                    .font(.title2.weight(.semibold))
+                                    .foregroundStyle(score.tint)
+                                if let delta {
+                                    Label(delta >= 0 ? "+\(delta)" : "\(delta)", systemImage: delta >= 0 ? "arrow.up.right" : "arrow.down.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(delta >= 0 ? Color.green : Color.red)
+                                        .labelStyle(.titleAndIcon)
+                                }
+                            }
                             Text("Based on your last 3 months of activity.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -320,6 +371,52 @@ struct FinancialHealthDetailView: View {
                     .padding(.vertical, 6)
                 }
                 .summitRowBackground()
+
+                if history.count >= 2 {
+                    Section {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Chart(history) { point in
+                                AreaMark(
+                                    x: .value("Month", point.label),
+                                    yStart: .value("Base", yMin),
+                                    yEnd: .value("Score", point.score)
+                                )
+                                .foregroundStyle(score.tint.opacity(0.12))
+                                LineMark(
+                                    x: .value("Month", point.label),
+                                    y: .value("Score", point.score)
+                                )
+                                .foregroundStyle(score.tint)
+                                .interpolationMethod(.catmullRom)
+                                PointMark(
+                                    x: .value("Month", point.label),
+                                    y: .value("Score", point.score)
+                                )
+                                .foregroundStyle(score.tint)
+                                .symbolSize(28)
+                            }
+                            .chartYScale(domain: yMin...yMax)
+                            .chartXAxis {
+                                AxisMarks { _ in
+                                    AxisValueLabel()
+                                }
+                            }
+                            .chartYAxis {
+                                AxisMarks(values: .stride(by: 20)) { value in
+                                    AxisGridLine()
+                                    AxisValueLabel()
+                                }
+                            }
+                            .frame(height: 130)
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Score Trend")
+                    } footer: {
+                        Text("Emergency fund and card debt reflect current balances. Savings rate and subscriptions are computed historically.")
+                    }
+                    .summitRowBackground()
+                }
 
                 Section {
                     ForEach(score.pillars) { pillar in
