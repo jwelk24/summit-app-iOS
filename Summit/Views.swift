@@ -718,6 +718,43 @@ struct SummitPacePill: View {
     }
 }
 
+struct SpendingPacePill: View {
+    let projected: Decimal
+    let budget: Decimal
+
+    private var fraction: Double {
+        guard budget > 0 else { return 0 }
+        return NSDecimalNumber(decimal: projected).doubleValue
+             / NSDecimalNumber(decimal: budget).doubleValue
+    }
+    private var tint: Color {
+        guard budget > 0 else { return .secondary }
+        if fraction > 1.0 { return .red }
+        if fraction > 0.85 { return .orange }
+        return .secondary
+    }
+    private var icon: String {
+        guard budget > 0 else { return "arrow.forward.circle" }
+        if fraction > 1.0 { return "exclamationmark.circle.fill" }
+        if fraction > 0.85 { return "chart.line.uptrend.xyaxis" }
+        return "arrow.forward.circle"
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.caption2.weight(.bold))
+            Text("Pace \(currency(projected))/mo").font(.caption2.weight(.semibold))
+        }
+        .monospacedDigit()
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.13), in: Capsule())
+        .overlay(Capsule().stroke(tint.opacity(0.25), lineWidth: 0.5))
+        .foregroundStyle(tint)
+        .lineLimit(1)
+    }
+}
+
 struct SummitCategoryDot: View {
     let color: Color
     var ringColor: Color? = nil
@@ -1196,6 +1233,20 @@ private struct CategoryRow: View {
     @State private var editText: String = ""
     @FocusState private var isFocused: Bool
 
+    private func projectedMonthlySpend(activity: Decimal) -> Decimal? {
+        let cal = Calendar.current
+        let now = Date()
+        let c = cal.dateComponents([.year, .month], from: now)
+        guard year == c.year, month == c.month else { return nil }
+        let spent = -activity
+        guard spent > 0 else { return nil }
+        let dayOfMonth = cal.component(.day, from: now)
+        guard dayOfMonth >= 5 else { return nil }
+        let daysInMonth = cal.range(of: .day, in: .month, for: now)?.count ?? 30
+        let daily = NSDecimalNumber(decimal: spent).doubleValue / Double(dayOfMonth)
+        return Decimal(daily * Double(daysInMonth))
+    }
+
     private var rolloverAmount: Decimal {
         guard rolloverEnabled else { return 0 }
         let prevM = month == 1 ? 12 : month - 1
@@ -1236,6 +1287,9 @@ private struct CategoryRow: View {
                         allMonths: allMonths
                     )
                     SummitPacePill(pace: pace)
+                        .padding(.top, 2)
+                } else if let pace = projectedMonthlySpend(activity: activity) {
+                    SpendingPacePill(projected: pace, budget: assigned)
                         .padding(.top, 2)
                 }
             }
