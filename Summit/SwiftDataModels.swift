@@ -98,6 +98,9 @@ final class TransactionModel {
     /// Drives cash-flow classification for the savings rate; `nil` for manually
     /// entered transactions, which fall back to sign-based classification.
     var pfcPrimary: String?
+    /// User-defined labels that cut across categories ("vacation-2026",
+    /// "reimbursable"). Searchable; synced via the transactions `tags` column.
+    var tags: [String] = []
 
     var account: AccountModel?
     var category: CategoryModel?
@@ -105,7 +108,7 @@ final class TransactionModel {
     @Relationship(deleteRule: .cascade, inverse: \TransactionSplitModel.transaction)
     var splits: [TransactionSplitModel]
 
-    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, pfcPrimary: String? = nil, account: AccountModel? = nil, category: CategoryModel? = nil) {
+    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, pfcPrimary: String? = nil, tags: [String] = [], account: AccountModel? = nil, category: CategoryModel? = nil) {
         self.id = id
         self.date = date
         self.amount = amount
@@ -114,6 +117,7 @@ final class TransactionModel {
         self.cleared = cleared
         self.flagColor = flagColor
         self.pfcPrimary = pfcPrimary
+        self.tags = tags
         self.account = account
         self.category = category
         self.splits = []

@@ -41,6 +41,7 @@ private struct TransactionRow: Codable, Sendable {
     let memo: String?
     let cleared: Bool
     let flag_color: String?
+    let tags: [String]?
     let deleted_at: Date?
 }
 
@@ -706,7 +707,7 @@ final class SyncService {
         let rows = local.map { t in
             TransactionRow(id: t.id, household_id: householdID, account_id: t.account?.id, category_id: t.category?.id,
                            date: t.date, amount: t.amount, merchant: t.merchant, memo: t.memo,
-                           cleared: t.cleared, flag_color: t.flagColor, deleted_at: nil)
+                           cleared: t.cleared, flag_color: t.flagColor, tags: t.tags.isEmpty ? nil : t.tags, deleted_at: nil)
         }
         guard !rows.isEmpty else { return 0 }
         try await SupabaseService.shared.client.from("transactions").upsert(rows, onConflict: "id").execute()
@@ -741,12 +742,13 @@ final class SyncService {
                 if local.memo != row.memo { local.memo = row.memo; changed += 1 }
                 if local.cleared != row.cleared { local.cleared = row.cleared; changed += 1 }
                 if local.flagColor != row.flag_color { local.flagColor = row.flag_color; changed += 1 }
+                if local.tags != (row.tags ?? []) { local.tags = row.tags ?? []; changed += 1 }
                 if local.account?.id != row.account_id { local.account = account; changed += 1 }
                 if local.category?.id != row.category_id { local.category = category; changed += 1 }
             } else {
                 let t = TransactionModel(id: row.id, date: row.date, amount: row.amount, merchant: row.merchant,
                                          memo: row.memo, cleared: row.cleared, flagColor: row.flag_color,
-                                         account: account, category: category)
+                                         tags: row.tags ?? [], account: account, category: category)
                 context.insert(t)
                 byID[row.id] = t
                 changed += 1

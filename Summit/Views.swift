@@ -1637,13 +1637,13 @@ struct TransactionsView: View {
             if let end = endBound, tx.date > end { return false }
             if !q.isEmpty {
                 let amountStr = NSDecimalNumber(decimal: tx.amount).stringValue
-                let haystack = [
+                let haystack = ([
                     tx.merchant,
                     tx.memo ?? "",
                     tx.category?.name ?? "",
                     tx.account?.name ?? "",
                     amountStr,
-                ].joined(separator: " ").lowercased()
+                ] + tx.tags).joined(separator: " ").lowercased()
                 if !haystack.contains(q) { return false }
             }
             return true
@@ -2089,6 +2089,23 @@ private struct TransactionRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                if !transaction.tags.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(transaction.tags.prefix(3), id: \.self) { tag in
+                            Text("#\(tag)")
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(.tint.opacity(0.12), in: Capsule())
+                                .foregroundStyle(.tint)
+                        }
+                        if transaction.tags.count > 3 {
+                            Text("+\(transaction.tags.count - 3)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             Spacer()
             Text(currency(transaction.amount))
@@ -2222,6 +2239,7 @@ struct TransactionEditor: View {
     @State private var categoryID: UUID?
     @State private var cleared: Bool = false
     @State private var flagColorName: String? = nil
+    @State private var tagsText: String = ""
     @State private var didLoad: Bool = false
     @State private var splits: [SplitDraft] = []
     @State private var showingNewRule: Bool = false
@@ -2263,6 +2281,12 @@ struct TransactionEditor: View {
                 }
 
                 TextField("Memo (optional)", text: $memo)
+
+                TextField("Tags (comma-separated)", text: $tagsText)
+                    .autocorrectionDisabled()
+                    #if canImport(UIKit)
+                    .textInputAutocapitalization(.never)
+                    #endif
 
                 Toggle("Cleared", isOn: $cleared)
 
@@ -2425,6 +2449,7 @@ struct TransactionEditor: View {
             categoryID = tx.category?.id
             cleared = tx.cleared
             flagColorName = tx.flagColor
+            tagsText = tx.tags.joined(separator: ", ")
             splits = tx.splits.map { existing in
                 SplitDraft(
                     id: existing.id,
@@ -2475,6 +2500,11 @@ struct TransactionEditor: View {
             target = tx
             isNew = true
         }
+
+        target.tags = tagsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
 
         for draft in splits {
             let amount = Decimal(string: draft.amountText) ?? 0
