@@ -2342,12 +2342,13 @@ struct TransactionEditor: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer()
-                            Text(currency(splitsSum))
+                            let totalMag = Decimal(string: amountText) ?? 0
+                            Text("\(currency(splitsMagnitude)) of \(currency(totalMag))")
                                 .font(.caption)
                                 .foregroundStyle(splitMismatch ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
                         }
                         if splitMismatch {
-                            Text("Splits must sum to \(currency(signedTotal)).")
+                            Text("Splits must sum to \(currency(Decimal(string: amountText) ?? 0)).")
                                 .font(.caption2)
                                 .foregroundStyle(.red)
                         }
@@ -2399,12 +2400,13 @@ struct TransactionEditor: View {
         return isInflow ? magnitude : -magnitude
     }
 
-    private var splitsSum: Decimal {
+    private var splitsMagnitude: Decimal {
         splits.reduce(Decimal.zero) { $0 + (Decimal(string: $1.amountText) ?? 0) }
     }
 
     private var splitMismatch: Bool {
-        !splits.isEmpty && splitsSum != signedTotal
+        let magnitude = Decimal(string: amountText) ?? 0
+        return !splits.isEmpty && splitsMagnitude != magnitude
     }
 
     private var canSave: Bool {
@@ -2419,21 +2421,12 @@ struct TransactionEditor: View {
     }
 
     private func startSplit() {
-        let total = signedTotal
+        let magnitude = Decimal(string: amountText) ?? 0
         splits = [
-            SplitDraft(id: UUID(), amountText: formatSigned(total), categoryID: categoryID, memo: ""),
+            SplitDraft(id: UUID(), amountText: formatPlain(magnitude), categoryID: categoryID, memo: ""),
             SplitDraft(id: UUID(), amountText: "", categoryID: nil, memo: "")
         ]
         categoryID = nil
-    }
-
-    private func formatSigned(_ d: Decimal) -> String {
-        let n = NSDecimalNumber(decimal: d)
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = 2
-        f.minimumFractionDigits = 0
-        return f.string(from: n) ?? "0"
     }
 
     private func loadIfNeeded() {
@@ -2453,7 +2446,7 @@ struct TransactionEditor: View {
             splits = tx.splits.map { existing in
                 SplitDraft(
                     id: existing.id,
-                    amountText: formatSigned(existing.amount),
+                    amountText: formatPlain(abs(existing.amount)),
                     categoryID: existing.category?.id,
                     memo: existing.memo ?? ""
                 )
@@ -2507,11 +2500,12 @@ struct TransactionEditor: View {
             .filter { !$0.isEmpty }
 
         for draft in splits {
-            let amount = Decimal(string: draft.amountText) ?? 0
+            let magnitude = Decimal(string: draft.amountText) ?? 0
+            let signedAmount = isInflow ? magnitude : -magnitude
             let splitCategory = categories.first { $0.id == draft.categoryID }
             let trimmed = draft.memo.trimmingCharacters(in: .whitespaces)
             let split = TransactionSplitModel(
-                amount: amount,
+                amount: signedAmount,
                 memo: trimmed.isEmpty ? nil : trimmed,
                 transaction: target,
                 category: splitCategory
