@@ -3043,6 +3043,13 @@ struct NetWorthView: View {
                     }
                 }
                 .summitRowBackground()
+
+                Section {
+                    InvestmentAllocationView(holdings: holdings)
+                } header: {
+                    SummitSectionHeader(title: "Allocation", systemImage: "chart.pie")
+                }
+                .summitRowBackground()
             }
         } else if accounts.contains(where: { $0.type == .investment || $0.type == .retirement }) {
             Section {
