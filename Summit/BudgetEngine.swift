@@ -63,8 +63,27 @@ final class BudgetEngine {
         }
         let new = BudgetMonthModel(year: year, month: month)
         context.insert(new)
+        if BudgetRollover.isEnabled {
+            seedRollover(into: new, context: context)
+        }
         try? context.save()
         return new
+    }
+
+    private func seedRollover(into newMonth: BudgetMonthModel, context: ModelContext) {
+        let prevM = newMonth.month == 1 ? 12 : newMonth.month - 1
+        let prevY = newMonth.month == 1 ? newMonth.year - 1 : newMonth.year
+        let prevDesc = FetchDescriptor<BudgetMonthModel>(
+            predicate: #Predicate { $0.year == prevY && $0.month == prevM }
+        )
+        guard let prevMonth = try? context.fetch(prevDesc).first else { return }
+        let categories = (try? context.fetch(FetchDescriptor<CategoryModel>())) ?? []
+        for category in categories {
+            let avail = BudgetEngine.available(for: category, in: prevMonth, year: prevY, month: prevM)
+            guard avail != 0 else { continue }
+            let alloc = BudgetAllocationModel(amount: avail, category: category, month: newMonth)
+            context.insert(alloc)
+        }
     }
 
     func assign(_ amount: Decimal, to category: CategoryModel, in budgetMonth: BudgetMonthModel, context: ModelContext) {
@@ -570,6 +589,15 @@ extension BudgetEngine {
         [allocHousing, allocGroceries, allocSavings].forEach { context.insert($0) }
 
         try? context.save()
+    }
+}
+
+// MARK: - Rollover settings
+
+enum BudgetRollover {
+    static var isEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "budgetRolloverEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "budgetRolloverEnabled") }
     }
 }
 

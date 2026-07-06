@@ -26,6 +26,7 @@ struct BudgetView: View {
     @State private var showingPaycheckPlan = false
 
     @AppStorage("budgetTitle") private var budgetTitle: String = "Budget"
+    @AppStorage("budgetRolloverEnabled") private var rolloverEnabled: Bool = false
 
     private var budgetMonth: BudgetMonthModel? {
         months.first { $0.year == engine.selectedYear && $0.month == engine.selectedMonth }
@@ -305,6 +306,13 @@ struct BudgetView: View {
                             Label("Plan a Paycheck", systemImage: "banknote")
                         }
                         .accessibilityIdentifier("paycheckPlanButton")
+
+                        Toggle(isOn: $rolloverEnabled) {
+                            Label("Budget Rollover", systemImage: "arrow.2.circlepath")
+                        }
+                        .onChange(of: rolloverEnabled) { _, enabled in
+                            BudgetRollover.isEnabled = enabled
+                        }
 
                         Divider()
 
@@ -1177,6 +1185,7 @@ private struct CategoryRow: View {
     @Environment(\.modelContext) private var context
 
     @Query private var allMonths: [BudgetMonthModel]
+    @AppStorage("budgetRolloverEnabled") private var rolloverEnabled: Bool = false
 
     let category: CategoryModel
     let budgetMonth: BudgetMonthModel?
@@ -1187,10 +1196,19 @@ private struct CategoryRow: View {
     @State private var editText: String = ""
     @FocusState private var isFocused: Bool
 
+    private var rolloverAmount: Decimal {
+        guard rolloverEnabled else { return 0 }
+        let prevM = month == 1 ? 12 : month - 1
+        let prevY = month == 1 ? year - 1 : year
+        guard let prevMonth = allMonths.first(where: { $0.year == prevY && $0.month == prevM }) else { return 0 }
+        return max(0, BudgetEngine.available(for: category, in: prevMonth, year: prevY, month: prevM))
+    }
+
     var body: some View {
         let assigned = BudgetEngine.assigned(for: category, in: budgetMonth)
         let activity = BudgetEngine.activity(for: category, year: year, month: month)
         let available = BudgetEngine.available(for: category, in: budgetMonth, year: year, month: month)
+        let rolled = rolloverAmount
 
         HStack(spacing: 10) {
             SummitCategoryDot(color: summitCategoryColor(category.name))
@@ -1201,6 +1219,12 @@ private struct CategoryRow: View {
                     .font(.caption)
                     .foregroundStyle(available < 0 ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
                     .monospacedDigit()
+                if rolled > 0 {
+                    Text("↩ \(currency(rolled)) rolled from last month")
+                        .font(.caption2)
+                        .foregroundStyle(.tint)
+                        .monospacedDigit()
+                }
                 if let goal = category.goals.first {
                     let pace = GoalForecast.pace(
                         goal: goal,
