@@ -111,6 +111,10 @@ extension TransactionModel {
     ]
 
     var cashFlowKind: CashFlowKind {
+        // A deposit linked to an expense as its refund is money coming back,
+        // not income — never let it inflate income. (ReportBuilder also nets
+        // it against spending.)
+        if amount > 0, refundsTransactionID != nil { return .transfer }
         // Manually entered transactions carry no Plaid category; classify by sign.
         guard let pfc = pfcPrimary, !pfc.isEmpty else {
             return amount > 0 ? .income : .expense
@@ -154,6 +158,14 @@ enum ReportBuilder {
 
         for tx in transactions where tx.date >= period.start && tx.date <= period.end {
             count += 1
+            // A linked refund nets against spending (and its category) rather
+            // than counting as income or disappearing as a plain transfer.
+            if tx.amount > 0, tx.refundsTransactionID != nil {
+                spending -= tx.amount
+                let name = tx.category?.name ?? "Uncategorized"
+                byCat[name, default: 0] -= tx.amount
+                continue
+            }
             switch tx.cashFlowKind {
             case .income:
                 income += tx.amount

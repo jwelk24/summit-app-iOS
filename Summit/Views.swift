@@ -1635,6 +1635,7 @@ struct TransactionsView: View {
     @State private var isSelecting = false
     @State private var selection: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
+    @State private var showingRefunds = false
 
     private func tapScanReceipt() {
         if entitlements.canScanReceipts {
@@ -1983,6 +1984,14 @@ struct TransactionsView: View {
                             if !transactions.isEmpty {
                                 Divider()
                                 Button {
+                                    showingRefunds = true
+                                } label: {
+                                    let waiting = transactions.filter { $0.awaitingRefund && $0.amount < 0 }.count
+                                    Label(waiting > 0 ? "Refunds (\(waiting) waiting)" : "Refunds",
+                                          systemImage: "arrow.uturn.backward.circle")
+                                }
+                                .accessibilityIdentifier("refundTrackerButton")
+                                Button {
                                     isSelecting = true
                                 } label: {
                                     Label("Select", systemImage: "checkmark.circle")
@@ -2008,6 +2017,9 @@ struct TransactionsView: View {
             }
             .sheet(item: $editing) { tx in
                 TransactionEditor(editing: tx)
+            }
+            .sheet(isPresented: $showingRefunds) {
+                RefundTrackerView()
             }
             .sheet(isPresented: $showingReceiptScanner) {
                 if entitlements.canScanReceipts {
@@ -2167,8 +2179,23 @@ private struct TransactionRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                if !transaction.tags.isEmpty {
+                if !transaction.tags.isEmpty || transaction.awaitingRefund || transaction.refundsTransactionID != nil {
                     HStack(spacing: 4) {
+                        if transaction.awaitingRefund {
+                            Label("Refund due", systemImage: "arrow.uturn.backward.circle")
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Color.orange.opacity(0.12), in: Capsule())
+                                .foregroundStyle(.orange)
+                        } else if transaction.refundsTransactionID != nil {
+                            Label("Refund", systemImage: "arrow.uturn.backward.circle.fill")
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Color.green.opacity(0.12), in: Capsule())
+                                .foregroundStyle(.green)
+                        }
                         ForEach(transaction.tags.prefix(3), id: \.self) { tag in
                             Text("#\(tag)")
                                 .font(.caption2.weight(.medium))
@@ -2318,6 +2345,7 @@ struct TransactionEditor: View {
     @State private var cleared: Bool = false
     @State private var flagColorName: String? = nil
     @State private var tagsText: String = ""
+    @State private var awaitingRefund: Bool = false
     @State private var didLoad: Bool = false
     @State private var splits: [SplitDraft] = []
     @State private var showingNewRule: Bool = false
@@ -2367,6 +2395,10 @@ struct TransactionEditor: View {
                     #endif
 
                 Toggle("Cleared", isOn: $cleared)
+
+                if !isInflow {
+                    Toggle("Expecting refund", isOn: $awaitingRefund)
+                }
 
                 Picker("Flag", selection: $flagColorName) {
                     Text("None").tag(String?.none)
@@ -2521,6 +2553,7 @@ struct TransactionEditor: View {
             cleared = tx.cleared
             flagColorName = tx.flagColor
             tagsText = tx.tags.joined(separator: ", ")
+            awaitingRefund = tx.awaitingRefund
             splits = tx.splits.map { existing in
                 SplitDraft(
                     id: existing.id,
@@ -2576,6 +2609,8 @@ struct TransactionEditor: View {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
             .filter { !$0.isEmpty }
+
+        target.awaitingRefund = isInflow ? false : awaitingRefund
 
         for draft in splits {
             let magnitude = Decimal(string: draft.amountText) ?? 0

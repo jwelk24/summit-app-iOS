@@ -101,6 +101,12 @@ final class TransactionModel {
     /// User-defined labels that cut across categories ("vacation-2026",
     /// "reimbursable"). Searchable; synced via the transactions `tags` column.
     var tags: [String] = []
+    /// On an expense: the user expects this charge to be refunded. Cleared
+    /// when a refund deposit is linked (or the user stops waiting).
+    var awaitingRefund: Bool = false
+    /// On an inflow: the id of the expense this deposit refunds. A linked
+    /// refund nets against spending in reports instead of counting as income.
+    var refundsTransactionID: UUID? = nil
 
     var account: AccountModel?
     var category: CategoryModel?
@@ -108,7 +114,7 @@ final class TransactionModel {
     @Relationship(deleteRule: .cascade, inverse: \TransactionSplitModel.transaction)
     var splits: [TransactionSplitModel]
 
-    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, pfcPrimary: String? = nil, tags: [String] = [], account: AccountModel? = nil, category: CategoryModel? = nil) {
+    init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, pfcPrimary: String? = nil, tags: [String] = [], awaitingRefund: Bool = false, refundsTransactionID: UUID? = nil, account: AccountModel? = nil, category: CategoryModel? = nil) {
         self.id = id
         self.date = date
         self.amount = amount
@@ -118,6 +124,8 @@ final class TransactionModel {
         self.flagColor = flagColor
         self.pfcPrimary = pfcPrimary
         self.tags = tags
+        self.awaitingRefund = awaitingRefund
+        self.refundsTransactionID = refundsTransactionID
         self.account = account
         self.category = category
         self.splits = []

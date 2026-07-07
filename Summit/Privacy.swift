@@ -40,7 +40,7 @@ enum DataExporter {
     struct Account: Codable { var id: UUID; var name: String; var type: String; var balance: Decimal; var currencyCode: String }
     struct CategoryGroup: Codable { var id: UUID; var name: String; var sort: Int }
     struct Category: Codable { var id: UUID; var name: String; var sort: Int; var groupID: UUID?; var linkedAccountID: UUID? }
-    struct Transaction: Codable { var id: UUID; var date: Date; var amount: Decimal; var merchant: String; var memo: String?; var cleared: Bool; var flagColor: String?; var pfcPrimary: String?; var tags: [String]?; var accountID: UUID?; var categoryID: UUID? }
+    struct Transaction: Codable { var id: UUID; var date: Date; var amount: Decimal; var merchant: String; var memo: String?; var cleared: Bool; var flagColor: String?; var pfcPrimary: String?; var tags: [String]?; var awaitingRefund: Bool?; var refundsTransactionID: UUID?; var accountID: UUID?; var categoryID: UUID? }
     struct Split: Codable { var id: UUID; var amount: Decimal; var memo: String?; var transactionID: UUID?; var categoryID: UUID? }
     struct Goal: Codable { var id: UUID; var type: String; var targetAmount: Decimal; var targetDate: Date?; var categoryID: UUID? }
     struct Scheduled: Codable { var id: UUID; var kind: String; var name: String; var amount: Decimal; var nextDate: Date; var intervalDays: Int; var accountID: UUID?; var categoryID: UUID? }
@@ -64,7 +64,7 @@ enum DataExporter {
             accounts: all(AccountModel.self).map { .init(id: $0.id, name: $0.name, type: $0.type.rawValue, balance: $0.balance, currencyCode: $0.currencyCode) },
             categoryGroups: all(CategoryGroupModel.self).map { .init(id: $0.id, name: $0.name, sort: $0.sort) },
             categories: all(CategoryModel.self).map { .init(id: $0.id, name: $0.name, sort: $0.sort, groupID: $0.group?.id, linkedAccountID: $0.linkedAccount?.id) },
-            transactions: all(TransactionModel.self).map { .init(id: $0.id, date: $0.date, amount: $0.amount, merchant: $0.merchant, memo: $0.memo, cleared: $0.cleared, flagColor: $0.flagColor, pfcPrimary: $0.pfcPrimary, tags: $0.tags.isEmpty ? nil : $0.tags, accountID: $0.account?.id, categoryID: $0.category?.id) },
+            transactions: all(TransactionModel.self).map { .init(id: $0.id, date: $0.date, amount: $0.amount, merchant: $0.merchant, memo: $0.memo, cleared: $0.cleared, flagColor: $0.flagColor, pfcPrimary: $0.pfcPrimary, tags: $0.tags.isEmpty ? nil : $0.tags, awaitingRefund: $0.awaitingRefund ? true : nil, refundsTransactionID: $0.refundsTransactionID, accountID: $0.account?.id, categoryID: $0.category?.id) },
             transactionSplits: all(TransactionSplitModel.self).map { .init(id: $0.id, amount: $0.amount, memo: $0.memo, transactionID: $0.transaction?.id, categoryID: $0.category?.id) },
             goals: all(GoalModel.self).map { .init(id: $0.id, type: $0.type.rawValue, targetAmount: $0.targetAmount, targetDate: $0.targetDate, categoryID: $0.category?.id) },
             scheduledItems: all(ScheduledItemModel.self).map { .init(id: $0.id, kind: $0.kind.rawValue, name: $0.name, amount: $0.amount, nextDate: $0.nextDate, intervalDays: $0.intervalDays, accountID: $0.account?.id, categoryID: $0.category?.id) },
@@ -154,6 +154,8 @@ enum DataImporter {
             if txs[t.id] != nil { skipped += 1; continue }
             let m = TransactionModel(id: t.id, date: t.date, amount: t.amount, merchant: t.merchant, memo: t.memo, cleared: t.cleared, flagColor: t.flagColor, pfcPrimary: t.pfcPrimary,
                                      tags: t.tags ?? [],
+                                     awaitingRefund: t.awaitingRefund ?? false,
+                                     refundsTransactionID: t.refundsTransactionID,
                                      account: t.accountID.flatMap { accounts[$0] },
                                      category: t.categoryID.flatMap { cats[$0] })
             context.insert(m); txs[t.id] = m; inserted += 1
