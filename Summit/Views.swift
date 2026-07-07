@@ -5442,7 +5442,7 @@ private struct ReportsHeroCard: View {
     }
 
     var body: some View {
-        SummitGlassCard {
+        SummitGlassCard(spacing: 8, padding: 12) {
             SummitHeroHeader(
                 systemImage: "chart.pie.fill",
                 label: periodLabel,
@@ -5451,22 +5451,42 @@ private struct ReportsHeroCard: View {
                 )
             )
 
-            SummitHeroAmount(
-                caption: netIsPositive ? "Net" : "Net Loss",
-                value: currency(summary.net),
-                tint: netTint
-            )
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(currency(summary.net))
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(
+                        LinearGradient(colors: [netTint, netTint.opacity(0.75)], startPoint: .top, endPoint: .bottom)
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Text(netIsPositive ? "net" : "net loss")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
-            SummitCapsuleMeter(fraction: spendFraction, tint: meterTint)
+            SummitCapsuleMeter(fraction: spendFraction, tint: meterTint, height: 6)
 
-            HStack(alignment: .top, spacing: 12) {
-                SummitMiniStat(label: "Income", value: currency(summary.totalIncome), tint: .green)
-                Divider().frame(height: 28)
-                SummitMiniStat(label: "Spending", value: currency(summary.totalSpending), tint: .red)
-                Divider().frame(height: 28)
-                SummitMiniStat(label: "Net", value: currency(summary.net), tint: netTint)
+            HStack(spacing: 12) {
+                compactStat("Income", currency(summary.totalIncome), .green)
+                compactStat("Spending", currency(summary.totalSpending), .red)
+                compactStat("Net", currency(summary.net), netTint)
             }
         }
+    }
+
+    private func compactStat(_ label: String, _ value: String, _ tint: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -5504,7 +5524,7 @@ struct SavingsRateCard: View {
     }
 
     var body: some View {
-        SummitGlassCard {
+        SummitGlassCard(spacing: 8, padding: 12) {
             SummitHeroHeader(
                 systemImage: "chart.line.uptrend.xyaxis",
                 label: "Savings Rate",
@@ -5513,9 +5533,7 @@ struct SavingsRateCard: View {
                 }
             )
 
-            SummitHeroAmount(caption: "of income saved", value: percentText, tint: tint)
-
-            SummitCapsuleMeter(fraction: meterFraction, tint: tint)
+            SummitCapsuleMeter(fraction: meterFraction, tint: tint, height: 6)
 
             Text(subtitle)
                 .font(.caption)
