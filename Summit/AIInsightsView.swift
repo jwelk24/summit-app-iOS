@@ -30,6 +30,7 @@ struct AIInsightsView: View {
 
     @State private var showingWeeklyReview = false
     @State private var showingWrapped = false
+    @State private var showingChallenges = false
 
     var body: some View {
         NavigationStack {
@@ -74,6 +75,9 @@ struct AIInsightsView: View {
             .sheet(isPresented: $showingWrapped) {
                 WrappedView()
             }
+            .sheet(isPresented: $showingChallenges) {
+                ChallengesView()
+            }
             .alert("AI Error", isPresented: errorBinding, presenting: errorMessage) { _ in
                 Button("OK") { errorMessage = nil }
             } message: { message in
@@ -116,10 +120,28 @@ struct AIInsightsView: View {
                 }
             }
             .accessibilityIdentifier("wrappedButton")
+
+            Button {
+                showingChallenges = true
+            } label: {
+                HStack {
+                    Label("Challenges", systemImage: "trophy")
+                    Spacer()
+                    if ChallengeStore.wins > 0 {
+                        Label("\(ChallengeStore.wins)", systemImage: "trophy.fill")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.orange)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .accessibilityIdentifier("challengesButton")
         } header: {
             SummitSectionHeader(title: "Check-Ins", systemImage: "calendar.badge.checkmark")
         } footer: {
-            Text("A 3-minute weekly tidy-up, and your year in review.")
+            Text("A 3-minute weekly tidy-up, your year in review, and money missions verified against your real spending.")
         }
         .summitRowBackground()
         .buttonStyle(.plain)
