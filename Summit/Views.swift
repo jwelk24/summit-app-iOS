@@ -682,23 +682,26 @@ struct SummitPacePill: View {
         case .unfunded: return "No contributions"
         case .shortThisMonth(let needed): return "+\(currency(needed)) this month"
         case .projecting(let months): return "\(months)mo to goal"
+        case .fundedThisMonth: return "Funded this month"
+        case .needToStayOnTrack(let needed): return "+\(currency(needed)) to stay on track"
         }
     }
 
     private var icon: String {
         switch pace {
         case .reached: return "checkmark.seal.fill"
-        case .onTrack: return "checkmark.circle.fill"
+        case .onTrack, .fundedThisMonth: return "checkmark.circle.fill"
         case .behind: return "exclamationmark.triangle.fill"
         case .unfunded, .shortThisMonth: return "minus.circle.fill"
         case .projecting: return "calendar"
+        case .needToStayOnTrack: return "target"
         }
     }
 
     private var tint: Color {
         switch pace {
-        case .reached, .onTrack: return .green
-        case .behind, .unfunded, .shortThisMonth: return .orange
+        case .reached, .onTrack, .fundedThisMonth: return .green
+        case .behind, .unfunded, .shortThisMonth, .needToStayOnTrack: return .orange
         case .projecting: return .accentColor
         }
     }
@@ -1353,6 +1356,20 @@ private struct CategoryRow: View {
                 commitAmount(target)
             } label: {
                 Label("Set to Goal  \(currency(target))", systemImage: "target")
+            }
+
+            if let needed = GoalForecast.neededThisMonth(
+                goal: goal,
+                availableNow: available,
+                assignedThisMonth: assigned,
+                currentYear: year,
+                currentMonth: month
+            ), needed > 0 {
+                Button {
+                    commitAmount(assigned + needed)
+                } label: {
+                    Label("Stay on Track  +\(currency(needed))", systemImage: "calendar.badge.checkmark")
+                }
             }
 
             let underfunded: Decimal = {

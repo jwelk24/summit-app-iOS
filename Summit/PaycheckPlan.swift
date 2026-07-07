@@ -79,11 +79,14 @@ enum PaycheckPlanner {
             case .savingsTarget:
                 needed = max(0, goal.targetAmount - available)
             case .byDateTarget:
-                let gap = max(0, goal.targetAmount - available)
-                let monthsLeft = goal.targetDate.map {
-                    max(1, (cal.dateComponents([.month], from: now, to: $0).month ?? 0) + 1)
-                } ?? 1
-                needed = gap / Decimal(monthsLeft)
+                // Same per-month share the budget row's "Stay on Track" uses.
+                needed = GoalForecast.neededThisMonth(
+                    goal: goal,
+                    availableNow: available,
+                    assignedThisMonth: assigned,
+                    currentYear: year,
+                    currentMonth: month
+                ) ?? max(0, goal.targetAmount - available)
             }
             guard needed >= 1 else { return nil }
             return GoalItem(category: cat, goal: goal, needed: needed)

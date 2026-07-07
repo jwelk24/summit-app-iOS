@@ -610,6 +610,10 @@ enum GoalPace {
     case unfunded
     case shortThisMonth(amountNeeded: Decimal)
     case projecting(monthsToGoal: Int)
+    /// This month's share of a by-date target is fully assigned.
+    case fundedThisMonth
+    /// Assign this much more this month to stay on track for the target date.
+    case needToStayOnTrack(amountNeeded: Decimal)
 }
 
 enum GoalForecast {
@@ -632,7 +636,6 @@ enum GoalForecast {
         allMonths: [BudgetMonthModel],
         asOf: Date = .now
     ) -> GoalPace {
-        let cal = Calendar.current
         let avgMonthly = BudgetEngine.averageAssigned(
             for: category,
             monthsBack: 3,
@@ -659,24 +662,55 @@ enum GoalForecast {
         case .byDateTarget:
             let remaining = goal.targetAmount - max(0, availableNow)
             if remaining <= 0 { return .reached }
-            guard let target = goal.targetDate else {
+            guard goal.targetDate != nil else {
                 guard avgMonthly > 0 else { return .unfunded }
                 let monthsToGoal = (NSDecimalNumber(decimal: remaining).doubleValue
                                     / NSDecimalNumber(decimal: avgMonthly).doubleValue).rounded()
                 return .projecting(monthsToGoal: max(1, Int(monthsToGoal)))
             }
-            let monthsToDeadline = cal.dateComponents([.month], from: asOf, to: target).month ?? 0
-            guard avgMonthly > 0 else {
-                return monthsToDeadline > 0
-                    ? .behind(monthsLate: monthsToDeadline)
-                    : .behind(monthsLate: 0)
-            }
-            let projected = (NSDecimalNumber(decimal: remaining).doubleValue
-                             / NSDecimalNumber(decimal: avgMonthly).doubleValue).rounded()
-            let diff = monthsToDeadline - Int(projected)
-            if diff >= 1 { return .onTrack(monthsEarly: diff) }
-            if diff <= -1 { return .behind(monthsLate: -diff) }
-            return .onTrack(monthsEarly: 0)
+            // YNAB-style: the target itself dictates this month's share —
+            // deterministic, not a guess from past contribution averages.
+            let needed = neededThisMonth(
+                goal: goal,
+                availableNow: availableNow,
+                assignedThisMonth: assignedThisMonth,
+                currentYear: currentYear,
+                currentMonth: currentMonth
+            ) ?? 0
+            return needed > 0 ? .needToStayOnTrack(amountNeeded: needed) : .fundedThisMonth
         }
+    }
+
+    /// For a by-date target: how much more to assign *this month* so that
+    /// spreading the rest evenly over the remaining months (inclusive) hits
+    /// the target on time. Returns nil for other goal types or without a date;
+    /// 0 when this month's share is already assigned.
+    static func neededThisMonth(
+        goal: GoalModel,
+        availableNow: Decimal,
+        assignedThisMonth: Decimal,
+        currentYear: Int,
+        currentMonth: Int
+    ) -> Decimal? {
+        guard goal.type == .byDateTarget, let target = goal.targetDate else { return nil }
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month], from: target)
+        let targetYear = comps.year ?? currentYear
+        let targetMonth = comps.month ?? currentMonth
+        // Months from the viewed month through the target month, inclusive.
+        // A past deadline collapses to 1: everything is due now.
+        let monthsLeft = max(1, (targetYear - currentYear) * 12 + (targetMonth - currentMonth) + 1)
+
+        // Progress before this month's assignment; `availableNow` already
+        // includes what's assigned this month.
+        let priorProgress = max(0, availableNow - assignedThisMonth)
+        let stillNeeded = goal.targetAmount - priorProgress
+        guard stillNeeded > 0 else { return 0 }
+
+        var perMonth = stillNeeded / Decimal(monthsLeft)
+        var rounded = Decimal()
+        // Round this month's share up to the cent so the plan never lands short.
+        NSDecimalRound(&rounded, &perMonth, 2, .up)
+        return max(0, rounded - assignedThisMonth)
     }
 }
