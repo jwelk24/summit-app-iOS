@@ -5541,6 +5541,7 @@ struct ReportsView: View {
     @State private var showingTaxPack = false
     @State private var exportError: String?
     @State private var filterTag: String? = nil
+    @State private var compareMode: ReportCompareMode = .off
 
     private var allTags: [String] {
         var seen = Set<String>()
@@ -5559,6 +5560,14 @@ struct ReportsView: View {
 
     private var summary: ReportSummary {
         ReportBuilder.build(transactions: filteredTransactions, period: period)
+    }
+
+    private var comparePeriod: ReportPeriod? {
+        period.comparisonPeriod(mode: compareMode, range: range)
+    }
+
+    private var compareSummary: ReportSummary? {
+        comparePeriod.map { ReportBuilder.build(transactions: filteredTransactions, period: $0) }
     }
 
     private var spendingByCategory: [CategorySpending] {
@@ -5620,6 +5629,11 @@ struct ReportsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    Picker("Compare to", selection: $compareMode) {
+                        ForEach(ReportCompareMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
                 } header: {
                     SummitSectionHeader(title: "Range", systemImage: "calendar")
                 } footer: {
@@ -5634,6 +5648,19 @@ struct ReportsView: View {
                     }
                 }
                 .summitRowBackground()
+
+                if let compareSummary, let comparePeriod {
+                    Section {
+                        ReportComparisonSection(current: summary, previous: compareSummary)
+                    } header: {
+                        SummitSectionHeader(title: "vs \(comparePeriod.label)", systemImage: "arrow.left.arrow.right")
+                    } footer: {
+                        if compareSummary.transactionCount == 0 {
+                            Text("No transactions in the comparison period.")
+                        }
+                    }
+                    .summitRowBackground()
+                }
 
                 let tags = allTags
                 if !tags.isEmpty {
