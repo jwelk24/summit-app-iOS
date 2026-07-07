@@ -325,7 +325,7 @@ struct BudgetView: View {
                         Button {
                             showingRules = true
                         } label: {
-                            Label("Auto-Categorization", systemImage: "wand.and.stars")
+                            Label("Transaction Rules", systemImage: "wand.and.stars")
                         }
                         .accessibilityIdentifier("autoCategorizationButton")
 

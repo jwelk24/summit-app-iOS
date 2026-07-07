@@ -332,7 +332,7 @@ struct PlaidSyncService {
             account: account
         )
         context.insert(model)
-        RuleEngine.categorizeIfPossible(model, context: context)
+        RuleEngine.applyIfPossible(model, context: context)
 
         let link = PlaidTransactionLinkModel(
             plaidTransactionId: tx.transaction_id,
@@ -353,6 +353,9 @@ struct PlaidSyncService {
         model.pfcPrimary = tx.personal_finance_category?.primary
         model.cleared = !tx.pending
         link.pending = tx.pending
+        // Plaid refreshes the raw merchant name above (e.g. pending → posted),
+        // which would undo a rule rename — re-run rule actions to restore it.
+        RuleEngine.applyIfPossible(model, context: context)
     }
 
     private func applyRemoved(plaidTransactionId: String) throws {

@@ -50,7 +50,7 @@ enum DataExporter {
     struct Liability: Codable { var id: UUID; var kind: String; var lastStatementBalance: Decimal?; var minimumPayment: Decimal?; var nextPaymentDueDate: Date?; var interestRatePercentage: Decimal?; var accountID: UUID? }
     struct Holding: Codable { var id: UUID; var ticker: String?; var name: String?; var quantity: Decimal; var value: Decimal; var costBasis: Decimal?; var accountID: UUID? }
     struct InvestmentTx: Codable { var id: UUID; var date: Date; var name: String; var amount: Decimal; var type: String; var accountID: UUID? }
-    struct Rule: Codable { var id: UUID; var matchField: String; var matchKind: String; var pattern: String; var priority: Int; var enabled: Bool; var categoryID: UUID? }
+    struct Rule: Codable { var id: UUID; var matchField: String; var matchKind: String; var pattern: String; var priority: Int; var enabled: Bool; var renameTo: String?; var addTags: [String]?; var categoryID: UUID? }
 
     /// Fetches everything and writes a single JSON file to a temp URL for sharing.
     @MainActor
@@ -74,7 +74,7 @@ enum DataExporter {
             liabilities: all(LiabilityModel.self).map { .init(id: $0.id, kind: $0.kind.rawValue, lastStatementBalance: $0.lastStatementBalance, minimumPayment: $0.minimumPayment, nextPaymentDueDate: $0.nextPaymentDueDate, interestRatePercentage: $0.interestRatePercentage, accountID: $0.account?.id) },
             investmentHoldings: all(InvestmentHoldingModel.self).map { .init(id: $0.id, ticker: $0.tickerSymbol, name: $0.securityName, quantity: $0.quantity, value: $0.institutionValue, costBasis: $0.costBasis, accountID: $0.account?.id) },
             investmentTransactions: all(InvestmentTransactionModel.self).map { .init(id: $0.id, date: $0.date, name: $0.name, amount: $0.amount, type: $0.type, accountID: $0.account?.id) },
-            categoryRules: all(CategoryRuleModel.self).map { .init(id: $0.id, matchField: $0.matchField, matchKind: $0.matchKind, pattern: $0.pattern, priority: $0.priority, enabled: $0.enabled, categoryID: $0.category?.id) }
+            categoryRules: all(CategoryRuleModel.self).map { .init(id: $0.id, matchField: $0.matchField, matchKind: $0.matchKind, pattern: $0.pattern, priority: $0.priority, enabled: $0.enabled, renameTo: $0.renameTo, addTags: $0.addTags.isEmpty ? nil : $0.addTags, categoryID: $0.category?.id) }
         )
 
         let encoder = JSONEncoder()
@@ -200,6 +200,7 @@ enum DataImporter {
         let ruleIDs = Set(fetchAll(CategoryRuleModel.self).map(\.id))
         for r in bundle.categoryRules where !ruleIDs.contains(r.id) {
             let m = CategoryRuleModel(id: r.id, priority: r.priority, matchField: r.matchField, matchKind: r.matchKind, pattern: r.pattern, enabled: r.enabled,
+                                      renameTo: r.renameTo, addTags: r.addTags ?? [],
                                       category: r.categoryID.flatMap { cats[$0] })
             context.insert(m); inserted += 1
         }

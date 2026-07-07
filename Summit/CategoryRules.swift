@@ -63,37 +63,64 @@ enum RuleEngine {
         }
     }
 
-    /// Applies rules in priority order to a single transaction. Returns the
-    /// matched category (if any), and increments hit stats on the rule.
+    /// Applies every matching rule to a transaction, in priority order.
+    /// Rules are evaluated sequentially against the transaction as it
+    /// evolves, so an early rename can affect later matches. The category
+    /// only fills in when the transaction has none (a user's choice is
+    /// never overwritten); the first matching rule with a rename claims
+    /// it; tags accumulate across all matches. Returns true when anything
+    /// changed.
     @discardableResult
-    static func apply(rules: [CategoryRuleModel], to tx: TransactionModel) -> CategoryModel? {
-        guard rulesEnabled else { return nil }
+    static func apply(rules: [CategoryRuleModel], to tx: TransactionModel) -> Bool {
+        guard rulesEnabled else { return false }
         let sorted = rules.filter(\.enabled).sorted { $0.priority < $1.priority }
+        var changed = false
+        var categoryClaimed = tx.category != nil
+        var renameClaimed = false
         for rule in sorted {
-            if matches(rule, transaction: tx) {
+            guard matches(rule, transaction: tx) else { continue }
+            var contributed = false
+            if !categoryClaimed, let category = rule.category {
+                tx.category = category
+                categoryClaimed = true
+                contributed = true
+            }
+            if !renameClaimed {
+                let newName = (rule.renameTo ?? "").trimmingCharacters(in: .whitespaces)
+                if !newName.isEmpty {
+                    renameClaimed = true
+                    if tx.merchant != newName {
+                        tx.merchant = newName
+                        contributed = true
+                    }
+                }
+            }
+            for tag in rule.addTags where !tx.tags.contains(tag) {
+                tx.tags.append(tag)
+                contributed = true
+            }
+            if contributed {
                 rule.lastAppliedAt = .now
                 rule.timesApplied += 1
-                return rule.category
+                changed = true
             }
         }
-        return nil
+        return changed
     }
 
     /// Convenience: fetches rules from the context and applies them to a
-    /// newly created transaction whose category is still nil. Safe to call
-    /// in any ingest path.
-    static func categorizeIfPossible(_ tx: TransactionModel, context: ModelContext) {
+    /// transaction. Safe to call in any ingest path — it never overwrites
+    /// an existing category, and rename/tag actions are idempotent.
+    static func applyIfPossible(_ tx: TransactionModel, context: ModelContext) {
         guard rulesEnabled else { return }
-        guard tx.category == nil else { return }
         let descriptor = FetchDescriptor<CategoryRuleModel>()
         guard let rules = try? context.fetch(descriptor) else { return }
-        if let category = apply(rules: rules, to: tx) {
-            tx.category = category
-        }
+        apply(rules: rules, to: tx)
     }
 
-    /// Bulk recategorize every transaction that's currently uncategorized.
-    /// Returns the number of transactions updated.
+    /// Bulk-applies all rules across every transaction: fills in missing
+    /// categories, renames merchants, and adds tags. Returns the number of
+    /// transactions that changed.
     @MainActor
     @discardableResult
     static func backfill(context: ModelContext) -> Int {
@@ -103,9 +130,8 @@ enum RuleEngine {
         let txDescriptor = FetchDescriptor<TransactionModel>()
         guard let transactions = try? context.fetch(txDescriptor) else { return 0 }
         var hits = 0
-        for tx in transactions where tx.category == nil {
-            if let category = apply(rules: rules, to: tx) {
-                tx.category = category
+        for tx in transactions {
+            if apply(rules: rules, to: tx) {
                 hits += 1
             }
         }
@@ -147,7 +173,7 @@ struct CategoryRulesView: View {
                     listContent
                 }
             }
-            .navigationTitle("Auto-Categorization")
+            .navigationTitle("Transaction Rules")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -195,7 +221,7 @@ struct CategoryRulesView: View {
                     ContentUnavailableView {
                         Label("No Rules Yet", systemImage: "wand.and.stars")
                     } description: {
-                        Text("Create rules like \"merchant contains STARBUCKS → Coffee\" and Summit will categorize matching charges automatically.")
+                        Text("Create rules like \"merchant contains STARBUCKS → Coffee, rename to Starbucks\" and Summit will categorize, rename, and tag matching charges automatically.")
                     } actions: {
                         Button {
                             showingNew = true
@@ -223,14 +249,14 @@ struct CategoryRulesView: View {
                     Button {
                         let hits = RuleEngine.backfill(context: context)
                         backfillMessage = hits == 0
-                            ? "No uncategorized transactions matched any rule."
-                            : "Categorized \(hits) transaction\(hits == 1 ? "" : "s")."
+                            ? "No transactions needed changes."
+                            : "Updated \(hits) transaction\(hits == 1 ? "" : "s")."
                     } label: {
-                        Label("Apply to Uncategorized Now", systemImage: "wand.and.stars")
+                        Label("Apply to Existing Transactions", systemImage: "wand.and.stars")
                     }
                     .accessibilityIdentifier("backfillRulesButton")
                 } footer: {
-                    Text("Rules run automatically on new transactions. This re-runs them across existing uncategorized history.")
+                    Text("Rules run automatically on new transactions. This re-runs them across your history: filling in missing categories, renaming merchants, and adding tags.")
                 }
                 .summitRowBackground()
             }
@@ -248,6 +274,7 @@ struct CategoryRulesView: View {
     }
 
     private func save(draft: RuleDraft, into existing: CategoryRuleModel?) {
+        let rename = draft.renameTo.trimmingCharacters(in: .whitespaces)
         if let existing {
             existing.matchField = draft.field.rawValue
             existing.matchKind = draft.kind.rawValue
@@ -256,6 +283,8 @@ struct CategoryRulesView: View {
             existing.priority = draft.priority
             existing.enabled = draft.enabled
             existing.category = draft.category
+            existing.renameTo = rename.isEmpty ? nil : rename
+            existing.addTags = draft.parsedTags
         } else {
             let rule = CategoryRuleModel(
                 priority: draft.priority,
@@ -264,6 +293,8 @@ struct CategoryRulesView: View {
                 pattern: draft.pattern,
                 caseSensitive: draft.caseSensitive,
                 enabled: draft.enabled,
+                renameTo: rename.isEmpty ? nil : rename,
+                addTags: draft.parsedTags,
                 category: draft.category
             )
             context.insert(rule)
@@ -286,11 +317,12 @@ private struct RuleRow: View {
                 Text(description)
                     .font(.subheadline)
                 HStack(spacing: 6) {
-                    if let cat = rule.category {
-                        Text("→ \(cat.name)")
-                    } else {
-                        Text("→ (no category)")
+                    if actions.isEmpty {
+                        Text("→ (no action)")
                             .foregroundStyle(.red)
+                    } else {
+                        Text("→ \(actions.joined(separator: " · "))")
+                            .lineLimit(1)
                     }
                     if rule.timesApplied > 0 {
                         Text("· \(rule.timesApplied) hit\(rule.timesApplied == 1 ? "" : "s")")
@@ -314,6 +346,14 @@ private struct RuleRow: View {
         let kind = RuleMatchKind(rawValue: rule.matchKind)?.displayName.lowercased() ?? rule.matchKind
         return "\(field) \(kind) \"\(rule.pattern)\""
     }
+
+    private var actions: [String] {
+        var parts: [String] = []
+        if let cat = rule.category { parts.append(cat.name) }
+        if let rename = rule.renameTo, !rename.isEmpty { parts.append("rename \"\(rename)\"") }
+        if !rule.addTags.isEmpty { parts.append(rule.addTags.map { "#\($0)" }.joined(separator: " ")) }
+        return parts
+    }
 }
 
 // MARK: - Editor
@@ -326,6 +366,22 @@ private struct RuleDraft {
     var priority: Int = 100
     var enabled: Bool = true
     var category: CategoryModel?
+    var renameTo: String = ""
+    var tagsText: String = ""
+
+    var parsedTags: [String] {
+        tagsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    /// A rule must do something: assign a category, rename, or tag.
+    var hasAction: Bool {
+        category != nil
+            || !renameTo.trimmingCharacters(in: .whitespaces).isEmpty
+            || !parsedTags.isEmpty
+    }
 }
 
 private struct RuleEditor: View {
@@ -354,13 +410,22 @@ private struct RuleEditor: View {
                     Toggle("Case sensitive", isOn: $draft.caseSensitive)
                 }
 
-                Section("Then assign") {
-                    Picker("Category", selection: $draft.category) {
-                        Text("— Choose —").tag(Optional<CategoryModel>.none)
+                Section {
+                    Picker("Set category", selection: $draft.category) {
+                        Text("— None —").tag(Optional<CategoryModel>.none)
                         ForEach(categories.sorted { $0.name < $1.name }) { cat in
                             Text(cat.name).tag(Optional(cat))
                         }
                     }
+                    TextField("Rename merchant to", text: $draft.renameTo)
+                        .autocorrectionDisabled()
+                    TextField("Add tags (comma separated)", text: $draft.tagsText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Then")
+                } footer: {
+                    Text("A rule needs at least one action. Category never overwrites one you've already set; rename and tags apply even to categorized transactions.")
                 }
 
                 Section("Options") {
@@ -378,7 +443,7 @@ private struct RuleEditor: View {
                         onSave(draft)
                         dismiss()
                     }
-                    .disabled(draft.pattern.trimmingCharacters(in: .whitespaces).isEmpty || draft.category == nil)
+                    .disabled(draft.pattern.trimmingCharacters(in: .whitespaces).isEmpty || !draft.hasAction)
                 }
             }
             .onAppear {
@@ -392,6 +457,8 @@ private struct RuleEditor: View {
                     draft.priority = rule.priority
                     draft.enabled = rule.enabled
                     draft.category = rule.category
+                    draft.renameTo = rule.renameTo ?? ""
+                    draft.tagsText = rule.addTags.joined(separator: ", ")
                 } else if let seed {
                     draft.field = .merchant
                     draft.kind = .contains

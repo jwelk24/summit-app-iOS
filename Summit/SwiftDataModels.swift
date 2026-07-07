@@ -447,6 +447,10 @@ final class CategoryRuleModel {
     var createdAt: Date
     var lastAppliedAt: Date?
     var timesApplied: Int
+    /// Optional action: rewrite the transaction's merchant name on match.
+    var renameTo: String? = nil
+    /// Optional action: tags to add on match (lowercased; deduped on apply).
+    var addTags: [String] = []
 
     var category: CategoryModel?
 
@@ -461,6 +465,8 @@ final class CategoryRuleModel {
         createdAt: Date = .now,
         lastAppliedAt: Date? = nil,
         timesApplied: Int = 0,
+        renameTo: String? = nil,
+        addTags: [String] = [],
         category: CategoryModel? = nil
     ) {
         self.id = id
@@ -473,6 +479,8 @@ final class CategoryRuleModel {
         self.createdAt = createdAt
         self.lastAppliedAt = lastAppliedAt
         self.timesApplied = timesApplied
+        self.renameTo = renameTo
+        self.addTags = addTags
         self.category = category
     }
 }

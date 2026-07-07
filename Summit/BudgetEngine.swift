@@ -276,7 +276,7 @@ final class BudgetEngine {
                 category: category
             )
             context.insert(tx)
-            RuleEngine.categorizeIfPossible(tx, context: context)
+            RuleEngine.applyIfPossible(tx, context: context)
             result.imported += 1
         }
         try? context.save()
