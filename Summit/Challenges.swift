@@ -42,6 +42,8 @@ struct CompletedChallenge: Codable, Identifiable {
     let title: String
     let endDate: Date
     let won: Bool
+    /// When the sweep recorded the result (optional: absent in early data).
+    var completedAt: Date? = nil
 }
 
 // MARK: - Progress
@@ -272,7 +274,8 @@ enum ChallengeStore {
             if ended || progress.failed {
                 let won = !progress.failed && progress.goalMet
                 finished.insert(CompletedChallenge(id: challenge.id, title: challenge.title,
-                                                   endDate: challenge.endDate, won: won), at: 0)
+                                                   endDate: challenge.endDate, won: won,
+                                                   completedAt: now), at: 0)
                 if won { wins += 1 }
             } else {
                 stillActive.append(challenge)

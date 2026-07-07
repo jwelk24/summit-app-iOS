@@ -24,6 +24,7 @@ enum FinancialCoach {
         var out: [CoachInsight] = []
         out += cashFlowInsight(accounts: accounts, scheduled: scheduled, transactions: transactions, cushion: cushion, now: now)
         out += streakInsight(transactions: transactions, now: now)
+        out += challengeInsights(transactions: transactions, now: now)
         out += categoryMovers(transactions: transactions, now: now)
         out += priceChangeInsights(transactions: transactions, now: now)
         out += upcomingBillInsight(scheduled: scheduled, now: now)
@@ -71,6 +72,44 @@ enum FinancialCoach {
             detail: "No spending logged for \(streak) days straight — keep it going.",
             sentiment: .positive
         )]
+    }
+
+    // MARK: Challenges
+
+    private static func challengeInsights(transactions: [TransactionModel], now: Date) -> [CoachInsight] {
+        // Sweep here too, so a win is celebrated even if the Challenges
+        // screen is never opened.
+        ChallengeStore.sweep(transactions: transactions, now: now)
+        var out: [CoachInsight] = []
+
+        let cal = Calendar.current
+        if let win = ChallengeStore.history.first(where: { done in
+            guard done.won, let at = done.completedAt else { return false }
+            return (cal.dateComponents([.day], from: at, to: now).day ?? 8) <= 7
+        }) {
+            out.append(CoachInsight(
+                icon: "trophy.fill",
+                title: "Challenge won: \(win.title)",
+                detail: "That's \(ChallengeStore.wins) challenge\(ChallengeStore.wins == 1 ? "" : "s") won. Pick your next one in Insights → Challenges.",
+                sentiment: .positive
+            ))
+        }
+
+        // Nudge when a category diet is running close to its cap.
+        for challenge in ChallengeStore.active where challenge.kind == .trimCategory {
+            let progress = ChallengeEngine.progress(for: challenge, transactions: transactions, now: now)
+            if !progress.failed && progress.fraction > 0.85 {
+                out.append(CoachInsight(
+                    icon: "scissors",
+                    title: "\(challenge.title) is close to the cap",
+                    detail: progress.statusText,
+                    sentiment: .warning
+                ))
+                break
+            }
+        }
+
+        return Array(out.prefix(2))
     }
 
     // MARK: Category month-over-month movers
