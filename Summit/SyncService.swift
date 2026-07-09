@@ -270,27 +270,6 @@ final class SyncService {
     /// Guards the one-time seed-collision cleanup so it runs once per app launch.
     private var didDedupeThisLaunch = false
 
-    func deduplicateCategories(context: ModelContext) async {
-        isSyncing = true
-        defer { isSyncing = false }
-        lastError = nil
-
-        // Stop realtime so its incoming changes can't fire @Query refreshes mid-operation.
-        await RealtimeService.shared.stop()
-        defer {
-            if let householdID = HouseholdService.shared.currentHousehold?.id {
-                Task { await RealtimeService.shared.start(context: context, householdID: householdID) }
-            }
-        }
-
-        do {
-            try deduplicateCategoriesAndGroups(context: context)
-        } catch {
-            lastError = error.localizedDescription
-            return
-        }
-    }
-
     /// Merges duplicate category groups (by name) and categories (by group + name)
     /// created by fresh-install seeds colliding with the household. Keeps the
     /// smallest-UUID survivor so devices converge, repoints children, then

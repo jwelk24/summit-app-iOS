@@ -5560,6 +5560,7 @@ struct ReportsView: View {
     @State private var exportError: String?
     @State private var filterTag: String? = nil
     @State private var compareMode: ReportCompareMode = .off
+    @State private var drillCategory: ReportCategoryDrill? = nil
 
     private var allTags: [String] {
         var seen = Set<String>()
@@ -5744,9 +5745,26 @@ struct ReportsView: View {
                             }
                         }
                         .frame(height: max(220, CGFloat(data.count) * 28))
+                        .chartOverlay { proxy in
+                            GeometryReader { geo in
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { location in
+                                        guard let plotAnchor = proxy.plotFrame else { return }
+                                        let plot = geo[plotAnchor]
+                                        let y = location.y - plot.origin.y
+                                        if let name: String = proxy.value(atY: y) {
+                                            drillCategory = ReportCategoryDrill(name: name)
+                                        }
+                                    }
+                            }
+                        }
                     }
                 } header: {
                     SummitSectionHeader(title: "Spending in Range", systemImage: "chart.bar.fill")
+                } footer: {
+                    Text("Tap a bar to see its transactions.")
                 }
                 .summitRowBackground()
 
@@ -5836,6 +5854,13 @@ struct ReportsView: View {
             }
             .sheet(isPresented: $showingPaywall) { PaywallView() }
             .sheet(isPresented: $showingTaxPack) { TaxPackView() }
+            .sheet(item: $drillCategory) { drill in
+                CategoryTransactionsSheet(
+                    categoryName: drill.name,
+                    period: period,
+                    transactions: filteredTransactions
+                )
+            }
             .sheet(item: Binding(
                 get: { exportedURL.map { ExportedDoc(url: $0) } },
                 set: { exportedURL = $0?.url }
