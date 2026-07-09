@@ -33,6 +33,10 @@ struct SummitSnapshot: Codable {
     let safePerDay: Double?
     /// Frequent merchants + typical amounts for the one-tap Quick Log widget.
     let quickLog: [QuickLogSuggestion]?
+    /// Financial health score (0–100), its grade, and month-over-month delta.
+    let healthScore: Int?
+    let healthGrade: String?
+    let healthDelta: Int?
 
     var netWorth: Double { totalAssets - totalLiabilities }
     var budgetRemaining: Double { budgetAssigned - budgetSpent }
@@ -78,7 +82,10 @@ struct SummitSnapshot: Codable {
             quickLog: [
                 QuickLogSuggestion(merchant: "Coffee", amount: 6),
                 QuickLogSuggestion(merchant: "Groceries", amount: 84),
-            ]
+            ],
+            healthScore: 78,
+            healthGrade: "Good",
+            healthDelta: 4
         )
     }
 }

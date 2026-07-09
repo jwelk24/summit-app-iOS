@@ -261,6 +261,94 @@ struct SafeToSpendWidget: Widget {
     }
 }
 
+// MARK: - Financial Health
+
+struct HealthScoreWidgetView: View {
+    let entry: SummitSnapshotEntry
+    @Environment(\.widgetFamily) private var family
+
+    private var tint: Color {
+        guard let score = entry.snapshot.healthScore else { return .secondary }
+        switch score {
+        case 80...: return .green
+        case 65..<80: return .mint
+        case 45..<65: return .orange
+        default: return .red
+        }
+    }
+
+    private var deltaText: String? {
+        entry.snapshot.healthDelta.map { $0 >= 0 ? "+\($0)" : "\($0)" }
+    }
+
+    var body: some View {
+        let snap = entry.snapshot
+        let scoreText = snap.healthScore.map(String.init) ?? "—"
+
+        switch family {
+        case .accessoryInline:
+            Text("Health: \(scoreText)\(deltaText.map { " (\($0))" } ?? "")")
+        case .accessoryCircular:
+            ZStack {
+                Circle().stroke(.tertiary, lineWidth: 4)
+                Circle()
+                    .trim(from: 0, to: CGFloat(snap.healthScore ?? 0) / 100)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text(scoreText)
+                    .font(.headline.weight(.bold))
+                    .minimumScaleFactor(0.5)
+            }
+        case .accessoryRectangular:
+            VStack(alignment: .leading, spacing: 1) {
+                Label("Financial Health", systemImage: "heart.text.square").font(.caption2)
+                HStack(spacing: 4) {
+                    Text(scoreText).font(.headline)
+                    if let deltaText { Text(deltaText).font(.caption2) }
+                }
+                if let grade = snap.healthGrade {
+                    Text(grade).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        default:
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Financial Health", systemImage: "heart.text.square")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(scoreText)
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .foregroundStyle(snap.healthScore == nil ? Color.secondary : tint)
+                    if let deltaText, let delta = snap.healthDelta {
+                        Text(deltaText)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(delta >= 0 ? Color.green : Color.red)
+                    }
+                }
+                Text(snap.healthGrade ?? "Needs income history")
+                    .font(.caption)
+                    .foregroundStyle(snap.healthGrade == nil ? Color.secondary : tint)
+                Spacer(minLength: 0)
+                ProgressView(value: Double(snap.healthScore ?? 0), total: 100)
+                    .tint(tint)
+            }
+        }
+    }
+}
+
+struct HealthScoreWidget: Widget {
+    let kind: String = "SummitHealthScoreWidget"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: SummitSnapshotProvider()) { entry in
+            HealthScoreWidgetView(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("Financial Health")
+        .description("Your 0–100 financial health score and how it changed this month.")
+        .supportedFamilies([.systemSmall, .accessoryRectangular, .accessoryInline, .accessoryCircular])
+    }
+}
+
 // MARK: - Quick Add
 
 struct QuickAddWidgetView: View {

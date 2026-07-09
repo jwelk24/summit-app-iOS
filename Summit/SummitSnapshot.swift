@@ -36,6 +36,10 @@ nonisolated struct SummitSnapshot: Codable {
     let safePerDay: Double?
     /// Frequent merchants + typical amounts for the one-tap Quick Log widget.
     let quickLog: [QuickLogSuggestion]?
+    /// Financial health score (0–100), its grade, and month-over-month delta.
+    let healthScore: Int?
+    let healthGrade: String?
+    let healthDelta: Int?
 
     var netWorth: Double { totalAssets - totalLiabilities }
     var budgetRemaining: Double { budgetAssigned - budgetSpent }
@@ -169,6 +173,13 @@ enum SummitSnapshotWriter {
         .prefix(4)
         .map { SummitSnapshot.QuickLogSuggestion(merchant: $0.0, amount: $0.2) }
 
+        let health = FinancialHealthCalculator.compute(transactions: txs, accounts: accounts, now: now)
+        var healthDelta: Int? = nil
+        if health.hasData, let lastMonth = cal.date(byAdding: .month, value: -1, to: now) {
+            let prev = FinancialHealthCalculator.compute(transactions: txs, accounts: accounts, now: lastMonth)
+            if prev.hasData { healthDelta = health.total - prev.total }
+        }
+
         return SummitSnapshot(
             lastUpdated: Date(),
             currencyCode: currency,
@@ -181,7 +192,10 @@ enum SummitSnapshotWriter {
             upcomingBills: upcoming,
             safeToSpendToday: safe.hasSpendableAccount ? NSDecimalNumber(decimal: safe.safeToday).doubleValue : nil,
             safePerDay: safe.hasSpendableAccount ? NSDecimalNumber(decimal: safe.perDay).doubleValue : nil,
-            quickLog: quickLog
+            quickLog: quickLog,
+            healthScore: health.hasData ? health.total : nil,
+            healthGrade: health.hasData ? health.grade : nil,
+            healthDelta: healthDelta
         )
     }
 }

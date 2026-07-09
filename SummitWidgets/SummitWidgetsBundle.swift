@@ -5,6 +5,7 @@ import SwiftUI
 struct SummitWidgetsBundle: WidgetBundle {
     var body: some Widget {
         SafeToSpendWidget()
+        HealthScoreWidget()
         QuickLogWidget()
         QuickAddWidget()
         NetWorthWidget()

@@ -28,6 +28,10 @@ struct SummitSnapshot: Codable {
     let upcomingBills: [BillSummary]
     let safeToSpendToday: Double?
     let safePerDay: Double?
+    /// Financial health score (0–100), grade, and month-over-month delta.
+    let healthScore: Int?
+    let healthGrade: String?
+    let healthDelta: Int?
 
     static let appGroupID = "group.com.welker.Summit"
     static let snapshotFilename = "SummitSnapshot.json"
