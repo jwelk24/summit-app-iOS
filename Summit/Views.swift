@@ -16,12 +16,6 @@ struct BudgetView: View {
 
     @State private var showingMove = false
     @State private var showingManageCategories = false
-    @State private var showingRename = false
-    @State private var showingSync = false
-    @State private var showingRules = false
-    @State private var showingAlerts = false
-    @State private var showingPrivacy = false
-    @State private var showingSettleUp = false
     @State private var showingBudgetDraft = false
     @State private var showingPaycheckPlan = false
 
@@ -321,49 +315,6 @@ struct BudgetView: View {
                         } label: {
                             Label("Manage Categories", systemImage: "folder.badge.gearshape")
                         }
-
-                        Button {
-                            showingRules = true
-                        } label: {
-                            Label("Transaction Rules", systemImage: "wand.and.stars")
-                        }
-                        .accessibilityIdentifier("autoCategorizationButton")
-
-                        Button {
-                            showingAlerts = true
-                        } label: {
-                            Label("Smart Alerts", systemImage: "bell.badge")
-                        }
-                        .accessibilityIdentifier("smartAlertsButton")
-
-                        Button {
-                            showingRename = true
-                        } label: {
-                            Label("Customize Tabs", systemImage: "rectangle.3.group")
-                        }
-                        .accessibilityIdentifier("customizeTabsButton")
-
-                        Divider()
-
-                        Button {
-                            showingSync = true
-                        } label: {
-                            Label("Sync & Account", systemImage: "icloud")
-                        }
-
-                        Button {
-                            showingSettleUp = true
-                        } label: {
-                            Label("Shared Expenses", systemImage: "person.2")
-                        }
-                        .accessibilityIdentifier("sharedExpensesButton")
-
-                        Button {
-                            showingPrivacy = true
-                        } label: {
-                            Label("Privacy & Data", systemImage: "lock.shield")
-                        }
-                        .accessibilityIdentifier("privacyButton")
                     } label: {
                         Label("Actions", systemImage: "ellipsis.circle")
                     }
@@ -379,24 +330,6 @@ struct BudgetView: View {
                 NavigationStack {
                     CategoriesManagementView()
                 }
-            }
-            .sheet(isPresented: $showingRename) {
-                CustomizeTabsView()
-            }
-            .sheet(isPresented: $showingRules) {
-                CategoryRulesView()
-            }
-            .sheet(isPresented: $showingAlerts) {
-                SmartAlertsView()
-            }
-            .sheet(isPresented: $showingSync) {
-                NavigationStack { AuthView() }
-            }
-            .sheet(isPresented: $showingPrivacy) {
-                PrivacyView()
-            }
-            .sheet(isPresented: $showingSettleUp) {
-                SettleUpView()
             }
             .sheet(isPresented: $showingBudgetDraft) {
                 BudgetDraftView()
