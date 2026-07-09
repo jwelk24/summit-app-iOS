@@ -4549,7 +4549,8 @@ private struct ReconcileSheet: View {
         guard let entered else { return }
         let delta = entered - account.balance
         if delta == 0 {
-            markAllCleared()
+            markCleared()
+            recordSnapshot(balance: entered)
             try? context.save()
             dismiss()
         } else {
@@ -4563,21 +4564,34 @@ private struct ReconcileSheet: View {
             date: Date(),
             amount: delta,
             merchant: "Reconciliation Adjustment",
-            memo: nil,
+            memo: "Balance reconciliation",
             cleared: true,
+            // Classified as a transfer so the adjustment never counts as
+            // income or spending in reports, savings rate, or health score.
+            pfcPrimary: delta >= 0 ? "TRANSFER_IN" : "TRANSFER_OUT",
             account: account,
             category: nil
         )
         context.insert(adjustment)
         account.balance = entered
-        markAllCleared()
+        markCleared()
+        recordSnapshot(balance: entered)
         try? context.save()
         dismiss()
     }
 
-    private func markAllCleared() {
-        for tx in account.transactions where !tx.cleared {
+    /// Clears everything the bank could have seen — future-dated entries stay uncleared.
+    private func markCleared() {
+        let now = Date()
+        for tx in account.transactions where !tx.cleared && tx.date <= now {
             tx.cleared = true
+        }
+    }
+
+    /// A reconciled balance is a known-true point — pin it in net-worth history.
+    private func recordSnapshot(balance: Decimal) {
+        if account.snapshots.last?.balance != balance {
+            context.insert(BalanceSnapshotModel(date: Date(), balance: balance, account: account))
         }
     }
 }
