@@ -79,6 +79,7 @@ final class BudgetEngine {
         guard let prevMonth = try? context.fetch(prevDesc).first else { return }
         let categories = (try? context.fetch(FetchDescriptor<CategoryModel>())) ?? []
         for category in categories {
+            guard !BudgetRollover.isExcluded(category.id) else { continue }
             let avail = BudgetEngine.available(for: category, in: prevMonth, year: prevY, month: prevM)
             guard avail != 0 else { continue }
             let alloc = BudgetAllocationModel(amount: avail, category: category, month: newMonth)
@@ -598,6 +599,31 @@ enum BudgetRollover {
     static var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "budgetRolloverEnabled") }
         set { UserDefaults.standard.set(newValue, forKey: "budgetRolloverEnabled") }
+    }
+
+    private static let excludedKey = "budgetRolloverExcludedCategoryIDs"
+
+    /// Categories opted out of rollover while the global toggle is on.
+    /// Device-local, like the global flag — whichever device first opens a
+    /// new month seeds it with its own settings.
+    static var excludedCategoryIDs: Set<UUID> {
+        get {
+            let raw = UserDefaults.standard.stringArray(forKey: excludedKey) ?? []
+            return Set(raw.compactMap(UUID.init(uuidString:)))
+        }
+        set {
+            UserDefaults.standard.set(newValue.map(\.uuidString).sorted(), forKey: excludedKey)
+        }
+    }
+
+    static func isExcluded(_ categoryID: UUID) -> Bool {
+        excludedCategoryIDs.contains(categoryID)
+    }
+
+    static func setExcluded(_ categoryID: UUID, _ excluded: Bool) {
+        var ids = excludedCategoryIDs
+        if excluded { ids.insert(categoryID) } else { ids.remove(categoryID) }
+        excludedCategoryIDs = ids
     }
 }
 

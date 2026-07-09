@@ -1226,6 +1226,9 @@ private struct CategoryRow: View {
 
     @Query private var allMonths: [BudgetMonthModel]
     @AppStorage("budgetRolloverEnabled") private var rolloverEnabled: Bool = false
+    /// Bumped when the per-category rollover override changes (it lives in
+    /// UserDefaults, which @AppStorage won't observe per-key-set) to re-render.
+    @State private var rolloverSettingsTick = false
 
     let category: CategoryModel
     let budgetMonth: BudgetMonthModel?
@@ -1251,7 +1254,7 @@ private struct CategoryRow: View {
     }
 
     private var rolloverAmount: Decimal {
-        guard rolloverEnabled else { return 0 }
+        guard rolloverEnabled, !BudgetRollover.isExcluded(category.id) else { return 0 }
         let prevM = month == 1 ? 12 : month - 1
         let prevY = month == 1 ? year - 1 : year
         guard let prevMonth = allMonths.first(where: { $0.year == prevY && $0.month == prevM }) else { return 0 }
@@ -1384,6 +1387,17 @@ private struct CategoryRow: View {
                 } label: {
                     Label("Fund Underfunded  +\(currency(underfunded))", systemImage: "plus.circle")
                 }
+            }
+        }
+
+        if rolloverEnabled {
+            Divider()
+            let excluded = BudgetRollover.isExcluded(category.id)
+            Button {
+                BudgetRollover.setExcluded(category.id, !excluded)
+                rolloverSettingsTick.toggle()
+            } label: {
+                Label("Roll Over Unspent", systemImage: excluded ? "circle" : "checkmark.circle.fill")
             }
         }
 
