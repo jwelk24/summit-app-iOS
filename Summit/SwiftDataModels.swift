@@ -114,6 +114,11 @@ final class TransactionModel {
     @Relationship(deleteRule: .cascade, inverse: \TransactionSplitModel.transaction)
     var splits: [TransactionSplitModel]
 
+    /// Receipt images. Local-only — attachments are never pushed to the
+    /// cloud or included in sync (images are heavy and privacy-sensitive).
+    @Relationship(deleteRule: .cascade, inverse: \TransactionAttachmentModel.transaction)
+    var attachments: [TransactionAttachmentModel] = []
+
     init(id: UUID = UUID(), date: Date, amount: Decimal, merchant: String, memo: String? = nil, cleared: Bool = false, flagColor: String? = nil, pfcPrimary: String? = nil, tags: [String] = [], awaitingRefund: Bool = false, refundsTransactionID: UUID? = nil, account: AccountModel? = nil, category: CategoryModel? = nil) {
         self.id = id
         self.date = date
@@ -490,6 +495,25 @@ final class CategoryRuleModel {
         self.renameTo = renameTo
         self.addTags = addTags
         self.category = category
+    }
+}
+
+/// A receipt photo attached to a transaction. JPEG bytes live outside the
+/// SQLite file via external storage. Deliberately absent from SyncService,
+/// the privacy export, and the widget snapshot — device-local only.
+@Model
+final class TransactionAttachmentModel {
+    @Attribute(.unique) var id: UUID
+    var createdAt: Date
+    @Attribute(.externalStorage) var imageData: Data
+
+    var transaction: TransactionModel?
+
+    init(id: UUID = UUID(), createdAt: Date = .now, imageData: Data, transaction: TransactionModel? = nil) {
+        self.id = id
+        self.createdAt = createdAt
+        self.imageData = imageData
+        self.transaction = transaction
     }
 }
 

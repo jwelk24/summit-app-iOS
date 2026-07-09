@@ -23,6 +23,7 @@ enum SummitSharedStore {
             InvestmentTransactionModel.self,
             LiabilityModel.self,
             CategoryRuleModel.self,
+            TransactionAttachmentModel.self,
             SoftDeleteTombstone.self,
             SharedExpenseModel.self,
             SettlementModel.self,

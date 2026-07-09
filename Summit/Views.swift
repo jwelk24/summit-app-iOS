@@ -2193,6 +2193,10 @@ private struct TransactionRow: View {
                         Text("·")
                         Text("Uncategorized")
                     }
+                    if !transaction.attachments.isEmpty {
+                        Image(systemName: "paperclip")
+                            .font(.caption2)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -2366,6 +2370,8 @@ struct TransactionEditor: View {
     @State private var didLoad: Bool = false
     @State private var splits: [SplitDraft] = []
     @State private var showingNewRule: Bool = false
+    @State private var pendingAttachments: [Data] = []
+    @State private var removedAttachmentIDs: Set<UUID> = []
 
     var body: some View {
         NavigationStack {
@@ -2427,6 +2433,12 @@ struct TransactionEditor: View {
                         .tag(Optional(option.name))
                     }
                 }
+
+                AttachmentsEditorSection(
+                    existing: editing?.attachments ?? [],
+                    pendingImages: $pendingAttachments,
+                    removedIDs: $removedAttachmentIDs
+                )
 
                 Section {
                     if splits.isEmpty {
@@ -2628,6 +2640,13 @@ struct TransactionEditor: View {
             .filter { !$0.isEmpty }
 
         target.awaitingRefund = isInflow ? false : awaitingRefund
+
+        for attachment in (editing?.attachments ?? []) where removedAttachmentIDs.contains(attachment.id) {
+            context.delete(attachment)
+        }
+        for imageData in pendingAttachments {
+            context.insert(TransactionAttachmentModel(imageData: imageData, transaction: target))
+        }
 
         for draft in splits {
             let magnitude = Decimal(string: draft.amountText) ?? 0
