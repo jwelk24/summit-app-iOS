@@ -367,6 +367,7 @@ struct BudgetView: View {
             year: engine.selectedYear,
             month: engine.selectedMonth
         )
+        await EngagementNudgesService.shared.refresh(context: context)
     }
 }
 
@@ -1600,6 +1601,7 @@ struct TransactionsView: View {
     @State private var selection: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
     @State private var showingRefunds = false
+    @State private var showingReviewInbox = false
 
     private func tapScanReceipt() {
         if entitlements.canScanReceipts {
@@ -1880,6 +1882,28 @@ struct TransactionsView: View {
                             TransactionsHeroCard(metrics: monthMetrics)
                                 .padding(.horizontal)
                                 .padding(.top, 8)
+                            let reviewCount = ReviewQueue.pending(in: transactions).count
+                            if reviewCount > 0 && !isSelecting {
+                                Button {
+                                    showingReviewInbox = true
+                                } label: {
+                                    HStack {
+                                        Label("\(reviewCount) transaction\(reviewCount == 1 ? "" : "s") to review",
+                                              systemImage: "tray.full")
+                                            .font(.subheadline.weight(.medium))
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal)
+                                .accessibilityIdentifier("reviewInboxBanner")
+                            }
                         }
                         transactionList
                     }
@@ -1985,6 +2009,9 @@ struct TransactionsView: View {
             .sheet(isPresented: $showingRefunds) {
                 RefundTrackerView()
             }
+            .sheet(isPresented: $showingReviewInbox) {
+                ReviewInboxView()
+            }
             .sheet(isPresented: $showingReceiptScanner) {
                 if entitlements.canScanReceipts {
                     ReceiptScannerView()
@@ -2066,6 +2093,7 @@ struct TransactionsView: View {
             year: now.year ?? 2026,
             month: now.month ?? 1
         )
+        await EngagementNudgesService.shared.refresh(context: context)
     }
 
     private func handleImport(result: Result<[URL], Error>) {
@@ -2187,6 +2215,9 @@ private struct TransactionRow: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        // The flag ring is color-only; voice it for VoiceOver users.
+        .accessibilityValue(transaction.flagColor.map { "Flagged \($0)" } ?? "")
     }
 }
 
@@ -3064,6 +3095,7 @@ struct NetWorthView: View {
                 year: now.year ?? 2026,
                 month: now.month ?? 1
             )
+            await EngagementNudgesService.shared.refresh(context: context)
         } catch {
             showPlaidError("Sync failed: \(error.localizedDescription)")
             AppSyncStatus.shared.endPlaidSync(error: error)
@@ -5291,6 +5323,24 @@ private struct SpendingSankeyView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
+        // Canvas drawing is invisible to VoiceOver; describe the whole flow.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Spending flow")
+        .accessibilityValue(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        let destinations = data.slices
+            .map { "\($0.name) \(fullCurrency($0.amount))" }
+            .joined(separator: ", ")
+        return "Income of \(fullCurrency(data.totalIncome)) flowing to \(destinations)"
+    }
+
+    private func fullCurrency(_ d: Decimal) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.maximumFractionDigits = 0
+        return f.string(from: NSDecimalNumber(decimal: d)) ?? "$0"
     }
 
     private func draw(in ctx: GraphicsContext, size: CGSize) {
@@ -5708,6 +5758,8 @@ struct ReportsView: View {
                                 y: .value("Category", item.categoryName)
                             )
                             .foregroundStyle(Color.accentColor)
+                            .accessibilityLabel(item.categoryName)
+                            .accessibilityValue(currency(Decimal(item.amount)))
                             .annotation(position: .trailing) {
                                 Text(currency(Decimal(item.amount)))
                                     .font(.caption2)
@@ -5758,6 +5810,8 @@ struct ReportsView: View {
                             )
                             .foregroundStyle(by: .value("Type", "Income"))
                             .position(by: .value("Type", "Income"))
+                            .accessibilityLabel("\(flow.label) income")
+                            .accessibilityValue(currency(Decimal(flow.income)))
 
                             BarMark(
                                 x: .value("Month", flow.label),
@@ -5765,6 +5819,8 @@ struct ReportsView: View {
                             )
                             .foregroundStyle(by: .value("Type", "Spending"))
                             .position(by: .value("Type", "Spending"))
+                            .accessibilityLabel("\(flow.label) spending")
+                            .accessibilityValue(currency(Decimal(flow.spending)))
                         }
                     }
                     .chartForegroundStyleScale([

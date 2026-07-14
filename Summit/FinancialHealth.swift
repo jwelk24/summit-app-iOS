@@ -228,6 +228,9 @@ struct HealthScoreRing: View {
                 .monospacedDigit()
         }
         .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Health score")
+        .accessibilityValue("\(score) out of 100")
     }
 }
 
