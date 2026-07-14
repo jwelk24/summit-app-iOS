@@ -47,6 +47,9 @@ struct RootView: View {
 
     @State private var selectedTab: TabKind = .budget
     @State private var showingQuickAdd = false
+    @State private var showingReviewInbox = false
+    @State private var showingWeeklyReview = false
+    @State private var showingMonthRecap = false
 
     @Environment(\.scenePhase) private var scenePhase
     private var appLock = AppLockService.shared
@@ -86,6 +89,25 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .summitQuickAdd)) { _ in
             // ⌘N from the menu bar (Mac / iPad hardware keyboard).
             showingQuickAdd = true
+        }
+        // Engagement-nudge notification taps, routed via NudgeRoutingDelegate.
+        .onReceive(NotificationCenter.default.publisher(for: .summitOpenReviewInbox)) { _ in
+            showingReviewInbox = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .summitOpenWeeklyReview)) { _ in
+            showingWeeklyReview = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .summitOpenMonthRecap)) { _ in
+            showingMonthRecap = true
+        }
+        .sheet(isPresented: $showingReviewInbox) {
+            ReviewInboxView()
+        }
+        .sheet(isPresented: $showingWeeklyReview) {
+            WeeklyReviewView()
+        }
+        .sheet(isPresented: $showingMonthRecap) {
+            MonthRecapView()
         }
         .overlay {
             if appLock.isLocked {

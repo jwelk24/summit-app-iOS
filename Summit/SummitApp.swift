@@ -52,6 +52,12 @@ struct SummitApp: App {
     @State private var engine = BudgetEngine()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        // Before launch finishes, so notification taps that cold-start the
+        // app still route to their destination.
+        NudgeRoutingDelegate.install()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -115,6 +121,7 @@ struct SummitApp: App {
                     if let householdID = HouseholdService.shared.currentHousehold?.id {
                         await RealtimeService.shared.start(context: sharedModelContainer.mainContext, householdID: householdID)
                     }
+                    await EngagementNudgesService.shared.refresh(context: sharedModelContainer.mainContext)
                 }
             default:
                 break

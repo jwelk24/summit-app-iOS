@@ -462,6 +462,7 @@ struct SmartAlertsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var entitlements = Entitlements.shared
     @State private var service = SmartAlertsService.shared
+    @State private var nudges = EngagementNudgesService.shared
     @State private var showingPaywall = false
     @State private var testStatus: String?
 
@@ -485,6 +486,7 @@ struct SmartAlertsView: View {
             permissionSection
             billSection
             lowBalanceSection
+            checkInSection
             if entitlements.canUseSmartAlerts {
                 budgetSection
                 unusualSection
@@ -524,6 +526,26 @@ struct SmartAlertsView: View {
             Text("Low-Balance Warning")
         } footer: {
             Text("Summit projects your checking and savings over the next 30 days from your scheduled bills and income, and warns you if it's set to dip below your cushion.")
+        }
+    }
+
+    private var checkInSection: some View {
+        Section {
+            Toggle("Weekly check-in", isOn: Binding(
+                get: { nudges.weeklyNudgeEnabled },
+                set: { nudges.weeklyNudgeEnabled = $0 }
+            ))
+            .accessibilityIdentifier("weeklyNudgeToggle")
+
+            Toggle("Month-end summary", isOn: Binding(
+                get: { nudges.monthlySummaryEnabled },
+                set: { nudges.monthlySummaryEnabled = $0 }
+            ))
+            .accessibilityIdentifier("monthlySummaryToggle")
+        } header: {
+            Text("Check-Ins")
+        } footer: {
+            Text("A Sunday-morning note on the week's new transactions (and any that still need a category), plus a summary when each month wraps up. Tap one to jump straight to the review.")
         }
     }
 
