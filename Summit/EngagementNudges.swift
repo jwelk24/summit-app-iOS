@@ -12,7 +12,7 @@ enum NudgeDestination: String {
     case monthRecap
 
     /// Key under which the destination travels in a notification's userInfo.
-    static let userInfoKey = "summit.nudge.destination"
+    nonisolated static let userInfoKey = "summit.nudge.destination"
 
     var notificationName: Notification.Name {
         switch self {
