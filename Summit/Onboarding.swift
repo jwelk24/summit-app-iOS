@@ -26,6 +26,18 @@ enum OnboardingState {
         set { UserDefaults.standard.set(newValue, forKey: accountsVisitedKey) }
     }
 
+    /// UI-test hook: launching with `--uitest-reset-onboarding` forces the
+    /// welcome flow regardless of existing data (see RootView.onAppear).
+    static var isUITestReset: Bool {
+        ProcessInfo.processInfo.arguments.contains("--uitest-reset-onboarding")
+    }
+
+    static func resetForUITests() {
+        hasCompletedWelcome = false
+        isChecklistDismissed = false
+        hasVisitedAccounts = false
+    }
+
     /// Anyone with real data predates the welcome flow — mark it (and the
     /// checklist) done silently so an app update never greets an existing
     /// user like a new install. The seed creates exactly 3 sample

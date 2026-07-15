@@ -120,21 +120,34 @@ struct RootView: View {
             }
         }
         .onAppear {
-            OnboardingState.skipForExistingUser(context: modelContext)
+            if OnboardingState.isUITestReset {
+                OnboardingState.resetForUITests()
+            } else {
+                OnboardingState.skipForExistingUser(context: modelContext)
+            }
             showingWelcome = !OnboardingState.hasCompletedWelcome
         }
-        .fullScreenCover(isPresented: $showingWelcome) {
-            OnboardingWelcomeView(
-                onFinish: {
-                    OnboardingState.hasCompletedWelcome = true
-                    showingWelcome = false
-                },
-                onConnectBank: {
-                    OnboardingState.hasCompletedWelcome = true
-                    showingWelcome = false
-                    showingWelcomeConnections = true
-                }
-            )
+        // The welcome flow is an overlay, not a fullScreenCover: a cover
+        // presented from onAppear can be silently dropped while the scene is
+        // still activating (first launch), but state-driven rendering can't.
+        .accessibilityHidden(showingWelcome)
+        .overlay {
+            if showingWelcome {
+                OnboardingWelcomeView(
+                    onFinish: {
+                        OnboardingState.hasCompletedWelcome = true
+                        withAnimation(.smooth(duration: 0.3)) { showingWelcome = false }
+                    },
+                    onConnectBank: {
+                        OnboardingState.hasCompletedWelcome = true
+                        withAnimation(.smooth(duration: 0.3)) { showingWelcome = false }
+                        showingWelcomeConnections = true
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemBackground).ignoresSafeArea())
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .sheet(isPresented: $showingWelcomeConnections) {
             NavigationStack {
