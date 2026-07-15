@@ -359,6 +359,7 @@ struct BudgetView: View {
                 AppSyncStatus.shared.endPlaidSync(error: error)
             }
         }
+        await FinanceKitService.syncIfEnabled(context: context)
         if SupabaseService.shared.isAuthenticated {
             await SyncService.shared.syncAccounts(context: context)
         }
@@ -2084,6 +2085,7 @@ struct TransactionsView: View {
                 AppSyncStatus.shared.endPlaidSync(error: error)
             }
         }
+        await FinanceKitService.syncIfEnabled(context: context)
         if SupabaseService.shared.isAuthenticated {
             await SyncService.shared.syncAccounts(context: context)
         }

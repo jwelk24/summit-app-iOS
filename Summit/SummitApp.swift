@@ -19,6 +19,8 @@ enum SummitSharedStore {
             BalanceSnapshotModel.self,
             PlaidAccountLinkModel.self,
             PlaidTransactionLinkModel.self,
+            FinanceKitAccountLinkModel.self,
+            FinanceKitTransactionLinkModel.self,
             InvestmentHoldingModel.self,
             InvestmentTransactionModel.self,
             LiabilityModel.self,

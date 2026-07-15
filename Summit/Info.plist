@@ -4,6 +4,8 @@
 <dict>
 	<key>SummitPlaidBackendURL</key>
 	<string>https://summit-backend-rszx.onrender.com</string>
+	<key>NSFinancialDataUsageDescription</key>
+	<string>Summit imports your Apple Card, Apple Cash, and Savings activity so your budget and net worth stay up to date. This data stays on your device.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Summit uses Face ID to unlock the app and keep your finances private.</string>
 	<key>CFBundleURLTypes</key>

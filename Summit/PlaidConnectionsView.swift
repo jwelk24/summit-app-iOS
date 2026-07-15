@@ -72,6 +72,15 @@ struct PlaidConnectionsView: View {
                 }
             }
 
+            Section("Apple Wallet") {
+                NavigationLink {
+                    AppleWalletConnectionView()
+                } label: {
+                    Label("Apple Card, Cash & Savings", systemImage: "wallet.pass")
+                }
+                .accessibilityIdentifier("appleWalletRow")
+            }
+
             if let status {
                 Section {
                     Text(status.text)

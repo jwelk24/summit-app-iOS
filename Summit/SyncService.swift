@@ -528,8 +528,13 @@ final class SyncService {
         var plaidIdByAccount: [UUID: String] = [:]
         for link in links { plaidIdByAccount[link.accountModelId] = link.plaidAccountId }
 
+        let fkLinks = try context.fetch(FetchDescriptor<FinanceKitAccountLinkModel>())
+        var financeKitIdByAccount: [UUID: UUID] = [:]
+        for link in fkLinks { financeKitIdByAccount[link.accountModelId] = link.financeKitAccountID }
+
         let byKey = Dictionary(grouping: accounts) { (acct: AccountModel) -> String in
             if let plaidId = plaidIdByAccount[acct.id] { return "plaid|\(plaidId)" }
+            if let fkId = financeKitIdByAccount[acct.id] { return "financekit|\(fkId.uuidString)" }
             return "manual|\(acct.name)|\(acct.type.rawValue)"
         }
         guard byKey.contains(where: { $0.value.count > 1 }) else { return }
@@ -555,8 +560,9 @@ final class SyncService {
                 for i in allInvTxns where i.account?.id == dupID { i.account = survivor }
                 for s in allScheduled where s.account?.id == dupID { s.account = survivor }
                 for c in allLinkedCats where c.linkedAccount?.id == dupID { c.linkedAccount = survivor }
-                // Plaid links reference the account by stored UUID, not a relationship.
+                // Plaid/FinanceKit links reference the account by stored UUID, not a relationship.
                 for pl in links where pl.accountModelId == dupID { pl.accountModelId = survivor.id }
+                for fl in fkLinks where fl.accountModelId == dupID { fl.accountModelId = survivor.id }
                 // Flush re-points before deleting so the cascade can't take moved children.
                 try context.save()
 
@@ -567,8 +573,17 @@ final class SyncService {
         }
     }
 
+    /// Account IDs sourced from Apple Wallet via FinanceKit. Wallet data is
+    /// local-only by policy (see FinanceKitService) — every push that could
+    /// carry it must exclude these accounts and the records hanging off them.
+    private func financeKitAccountIDs(context: ModelContext) throws -> Set<UUID> {
+        Set(try context.fetch(FetchDescriptor<FinanceKitAccountLinkModel>()).map(\.accountModelId))
+    }
+
     private func pushAccounts(context: ModelContext, householdID: UUID) async throws -> Int {
+        let localOnly = try financeKitAccountIDs(context: context)
         let local = try context.fetch(FetchDescriptor<AccountModel>())
+            .filter { !localOnly.contains($0.id) }
         let rows = local.map { a in
             AccountRow(id: a.id, household_id: householdID, name: a.name, type: a.type.rawValue,
                        balance: a.balance, currency_code: a.currencyCode, deleted_at: nil)
@@ -684,7 +699,9 @@ final class SyncService {
     // MARK: - Transactions
 
     private func pushTransactions(context: ModelContext, householdID: UUID) async throws -> Int {
+        let localOnly = try financeKitAccountIDs(context: context)
         let local = try context.fetch(FetchDescriptor<TransactionModel>())
+            .filter { t in t.account.map { !localOnly.contains($0.id) } ?? true }
         let rows = local.map { t in
             TransactionRow(id: t.id, household_id: householdID, account_id: t.account?.id, category_id: t.category?.id,
                            date: t.date, amount: t.amount, merchant: t.merchant, memo: t.memo,
@@ -976,8 +993,9 @@ final class SyncService {
     private func pushBalanceSnapshots(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<BalanceSnapshotModel>())
         var seen = Set<String>()
+        let localOnly = try financeKitAccountIDs(context: context)
         let rows: [BalanceSnapshotRow] = local.compactMap { s in
-            guard let accountID = s.account?.id else { return nil }
+            guard let accountID = s.account?.id, !localOnly.contains(accountID) else { return nil }
             let key = "\(accountID.uuidString)-\(s.date.timeIntervalSince1970)"
             guard seen.insert(key).inserted else { return nil }
             return BalanceSnapshotRow(id: s.id, household_id: householdID, account_id: accountID,
@@ -1368,8 +1386,10 @@ final class SyncService {
 
     private func pushTransactionSplits(context: ModelContext, householdID: UUID) async throws -> Int {
         let local = try context.fetch(FetchDescriptor<TransactionSplitModel>())
+        let localOnly = try financeKitAccountIDs(context: context)
         let rows: [TransactionSplitRow] = local.compactMap { s in
             guard let txID = s.transaction?.id else { return nil }
+            if let accountID = s.transaction?.account?.id, localOnly.contains(accountID) { return nil }
             return TransactionSplitRow(id: s.id, household_id: householdID, transaction_id: txID,
                                        category_id: s.category?.id, amount: s.amount, memo: s.memo, deleted_at: nil)
         }
