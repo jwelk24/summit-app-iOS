@@ -208,6 +208,8 @@ struct BudgetView: View {
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
+                            GettingStartedSection(transactionCount: transactions.count)
+
                             if shouldOfferDraft {
                                 Section {
                                     Button {

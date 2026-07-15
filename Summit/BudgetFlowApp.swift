@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 enum TabKind: String, CaseIterable, Identifiable {
     case budget, transactions, netWorth, horizon, reports, insights, settings
@@ -50,8 +51,11 @@ struct RootView: View {
     @State private var showingReviewInbox = false
     @State private var showingWeeklyReview = false
     @State private var showingMonthRecap = false
+    @State private var showingWelcome = false
+    @State private var showingWelcomeConnections = false
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
     private var appLock = AppLockService.shared
 
     private var orderedTabs: [TabKind] {
@@ -108,6 +112,39 @@ struct RootView: View {
         }
         .sheet(isPresented: $showingMonthRecap) {
             MonthRecapView()
+        }
+        // Getting Started rows on other tabs route here; RootView owns the selection.
+        .onReceive(NotificationCenter.default.publisher(for: .summitSelectTab)) { note in
+            if let raw = note.object as? String, let kind = TabKind(rawValue: raw) {
+                selectedTab = kind
+            }
+        }
+        .onAppear {
+            OnboardingState.skipForExistingUser(context: modelContext)
+            showingWelcome = !OnboardingState.hasCompletedWelcome
+        }
+        .fullScreenCover(isPresented: $showingWelcome) {
+            OnboardingWelcomeView(
+                onFinish: {
+                    OnboardingState.hasCompletedWelcome = true
+                    showingWelcome = false
+                },
+                onConnectBank: {
+                    OnboardingState.hasCompletedWelcome = true
+                    showingWelcome = false
+                    showingWelcomeConnections = true
+                }
+            )
+        }
+        .sheet(isPresented: $showingWelcomeConnections) {
+            NavigationStack {
+                PlaidConnectionsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showingWelcomeConnections = false }
+                        }
+                    }
+            }
         }
         .overlay {
             if appLock.isLocked {
