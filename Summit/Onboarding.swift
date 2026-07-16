@@ -10,6 +10,7 @@ enum OnboardingState {
     static let welcomeDoneKey = "onboarding.welcomeDone"
     static let checklistDismissedKey = "onboarding.checklistDismissed"
     static let accountsVisitedKey = "onboarding.accountsVisited"
+    static let tourDoneKey = "onboarding.tourDone"
 
     static var hasCompletedWelcome: Bool {
         get { UserDefaults.standard.bool(forKey: welcomeDoneKey) }
@@ -26,6 +27,13 @@ enum OnboardingState {
         set { UserDefaults.standard.set(newValue, forKey: accountsVisitedKey) }
     }
 
+    /// Completing the guided feature tour (closing it early doesn't count,
+    /// so the checklist step stays available to retake).
+    static var hasTakenTour: Bool {
+        get { UserDefaults.standard.bool(forKey: tourDoneKey) }
+        set { UserDefaults.standard.set(newValue, forKey: tourDoneKey) }
+    }
+
     /// UI-test hook: launching with `--uitest-reset-onboarding` forces the
     /// welcome flow regardless of existing data (see RootView.onAppear).
     static var isUITestReset: Bool {
@@ -36,6 +44,7 @@ enum OnboardingState {
         hasCompletedWelcome = false
         isChecklistDismissed = false
         hasVisitedAccounts = false
+        hasTakenTour = false
     }
 
     /// Anyone with real data predates the welcome flow — mark it (and the
@@ -280,6 +289,7 @@ struct GettingStartedSection: View {
 
     @AppStorage(OnboardingState.checklistDismissedKey) private var dismissed = false
     @AppStorage(OnboardingState.accountsVisitedKey) private var accountsVisited = false
+    @AppStorage(OnboardingState.tourDoneKey) private var tourDone = false
 
     @Query private var plaidLinks: [PlaidAccountLinkModel]
     @Query private var walletLinks: [FinanceKitAccountLinkModel]
@@ -295,7 +305,7 @@ struct GettingStartedSection: View {
     private var hasConnection: Bool { !plaidLinks.isEmpty || !walletLinks.isEmpty }
 
     private var doneStates: [Bool] {
-        [accountsVisited, hasLoggedTransaction, hasConnection, alerts.isAuthorized, supabase.isAuthenticated]
+        [tourDone, accountsVisited, hasLoggedTransaction, hasConnection, alerts.isAuthorized, supabase.isAuthenticated]
     }
     private var doneCount: Int { doneStates.count(where: { $0 }) }
     private var allDone: Bool { doneCount == doneStates.count }
@@ -305,6 +315,16 @@ struct GettingStartedSection: View {
             Section {
                 header
                     .task { await alerts.refreshAuthorization() }
+
+                ChecklistRow(
+                    icon: "map",
+                    title: "Take the tour",
+                    subtitle: "A guided look at what lives on each tab.",
+                    done: tourDone,
+                    identifier: "gettingStartedTour"
+                ) {
+                    NotificationCenter.default.post(name: .summitStartTour, object: nil)
+                }
 
                 ChecklistRow(
                     icon: "building.columns",

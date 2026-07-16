@@ -81,4 +81,32 @@ final class OnboardingUITests: XCTestCase {
         XCTAssertTrue(checklist.waitForExistence(timeout: 10), "Getting Started checklist should show after finishing")
         XCTAssertFalse(continueButton.exists)
     }
+
+    @MainActor
+    func testGuidedTourVisitsEveryStopAndCompletes() throws {
+        let app = launchWithFreshOnboarding()
+
+        let skip = app.buttons["onboardingSkipButton"]
+        XCTAssertTrue(skip.waitForExistence(timeout: launchTimeout), "Welcome flow should appear on a fresh install")
+        skip.tap()
+
+        let tourRow = app.buttons["gettingStartedTour"]
+        XCTAssertTrue(tourRow.waitForExistence(timeout: 10), "Take-the-tour step should be in the checklist")
+        tourRow.tap()
+
+        // One button walks the whole tour: "Next" for six stops, "Done" on
+        // the seventh. Each advance switches tabs, so let that settle.
+        let advance = app.buttons["featureTourNextButton"]
+        XCTAssertTrue(advance.waitForExistence(timeout: 10), "Tour card should appear")
+        for _ in 0..<7 {
+            XCTAssertTrue(waitForHittable(advance, timeout: 10), "Tour card should stay up between stops")
+            Thread.sleep(forTimeInterval: 0.4)
+            advance.tap()
+        }
+
+        let gone = NSPredicate(format: "exists == false")
+        let dismissed = XCTNSPredicateExpectation(predicate: gone, object: advance)
+        XCTAssertEqual(XCTWaiter().wait(for: [dismissed], timeout: 5), .completed,
+                       "Tour card should dismiss after Done")
+    }
 }

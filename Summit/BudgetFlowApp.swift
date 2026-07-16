@@ -53,6 +53,8 @@ struct RootView: View {
     @State private var showingMonthRecap = false
     @State private var showingWelcome = false
     @State private var showingWelcomeConnections = false
+    /// Current stop of the guided feature tour; nil when no tour is running.
+    @State private var tourIndex: Int? = nil
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
@@ -79,7 +81,28 @@ struct RootView: View {
         .tint(Color(hex: appAccentHex) ?? .accentColor)
         .monospacedDigit()
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            SummitSyncHUD()
+            // The tour card lives in the inset (not an overlay) so the tab
+            // bar stays visible — the tour is about where things are.
+            VStack(spacing: 0) {
+                if let index = tourIndex {
+                    FeatureTourCard(
+                        index: index,
+                        onAdvance: { advanceTour(to: $0) },
+                        onFinish: {
+                            OnboardingState.hasTakenTour = true
+                            withAnimation(.smooth(duration: 0.25)) { tourIndex = nil }
+                        },
+                        onClose: {
+                            withAnimation(.smooth(duration: 0.25)) { tourIndex = nil }
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                SummitSyncHUD()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .summitStartTour)) { _ in
+            advanceTour(to: 0)
         }
         .sheet(isPresented: $showingQuickAdd) {
             TransactionEditor(editing: nil)
@@ -166,6 +189,14 @@ struct RootView: View {
                 // Keeps balances out of the app-switcher snapshot.
                 AppPrivacyShield()
             }
+        }
+    }
+
+    /// Moves the guided tour to a stop and brings its tab on screen.
+    private func advanceTour(to index: Int) {
+        withAnimation(.smooth(duration: 0.25)) {
+            tourIndex = index
+            selectedTab = TourStop.all[index].tab
         }
     }
 

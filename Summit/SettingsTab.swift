@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var showingAlerts = false
     @State private var showingCustomize = false
     @State private var showingPrivacy = false
+    @State private var showingGuide = false
 
     var body: some View {
         NavigationStack {
@@ -48,6 +49,13 @@ struct SettingsView: View {
                     }
                 }
                 .summitRowBackground()
+
+                Section("Help") {
+                    settingsRow("Feature Guide", systemImage: "map", identifier: "featureGuideButton") {
+                        showingGuide = true
+                    }
+                }
+                .summitRowBackground()
             }
             .summitListBackground()
             .summitReadableWidth()
@@ -70,6 +78,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingPrivacy) {
                 PrivacyView()
+            }
+            .sheet(isPresented: $showingGuide) {
+                FeatureGuideView()
             }
         }
     }
