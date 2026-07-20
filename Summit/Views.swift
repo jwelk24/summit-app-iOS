@@ -115,6 +115,82 @@ struct BudgetView: View {
         return abs(total)
     }
 
+    private var assignedTotal: Decimal {
+        budgetMonth?.allocations.reduce(Decimal.zero) { $0 + $1.amount } ?? 0
+    }
+
+    /// Savings rate for the selected month (income kept), clamped to 0...1
+    /// for the hero mountain's snow cap. No income → bare peak.
+    private var heroSavingsRate: Double {
+        let cal = Calendar.current
+        guard let start = cal.date(from: DateComponents(year: engine.selectedYear, month: engine.selectedMonth, day: 1)),
+              let nextMonth = cal.date(byAdding: .month, value: 1, to: start) else { return 0 }
+        let period = ReportPeriod(start: start, end: nextMonth.addingTimeInterval(-1))
+        let summary = ReportBuilder.build(transactions: transactions, period: period)
+        return min(max(summary.savingsRate ?? 0, 0), 1)
+    }
+
+    /// Long-term trajectory for the hero mountain's peak height: the trailing
+    /// 3-month savings rate mapped so spending 10%+ over income flattens the
+    /// peak (0) and the 20%+ benchmark earns a near-full summit (≥0.85).
+    private var heroNetWorthTrend: Double {
+        let cal = Calendar.current
+        guard let start = cal.date(byAdding: .month, value: -3, to: .now) else { return 0.5 }
+        let period = ReportPeriod(start: cal.startOfDay(for: start), end: .now)
+        let summary = ReportBuilder.build(transactions: transactions, period: period)
+        guard let rate = summary.savingsRate else { return 0.5 }
+        return min(max((rate + 0.1) / 0.35, 0), 1)
+    }
+
+    /// Top four categories by spend this month for the hero grid.
+    private var heroTiles: [SummitBudgetHero.CategoryTile] {
+        struct Ranked {
+            let category: CategoryModel
+            let spent: Decimal
+            let budget: Decimal
+        }
+        var ranked: [Ranked] = []
+        for cat in categories {
+            let activity: Decimal = BudgetEngine.activity(for: cat, year: engine.selectedYear, month: engine.selectedMonth)
+            let spent: Decimal = max(0, -activity)
+            let budget: Decimal = BudgetEngine.assigned(for: cat, in: budgetMonth)
+            if spent > 0 || budget > 0 {
+                ranked.append(Ranked(category: cat, spent: spent, budget: budget))
+            }
+        }
+        ranked.sort { $0.spent > $1.spent }
+        return ranked.prefix(4).enumerated().map { index, entry in
+            SummitBudgetHero.CategoryTile(
+                id: entry.category.id,
+                name: entry.category.name,
+                spent: entry.spent,
+                budget: entry.budget,
+                index: index
+            )
+        }
+    }
+
+    /// One-line pace read for the Summit Insight card; generic when the
+    /// month is too young (or not current) to project from.
+    private var heroInsight: String {
+        let cal = Calendar.current
+        let now = Date()
+        let c = cal.dateComponents([.year, .month, .day], from: now)
+        guard c.year == engine.selectedYear, c.month == engine.selectedMonth,
+              let day = c.day, day >= 5, assignedTotal > 0, monthOutflow > 0 else {
+            return "Spending trends, health score, and your weekly review — tap to explore."
+        }
+        let daysInMonth = cal.range(of: .day, in: .month, for: now)?.count ?? 30
+        let daily = NSDecimalNumber(decimal: monthOutflow).doubleValue / Double(day)
+        let projected = Decimal(daily * Double(daysInMonth))
+        let diff = assignedTotal - projected
+        if diff >= 0 {
+            return "You're on pace to finish \(currency(diff)) under budget this month."
+        } else {
+            return "You're pacing \(currency(-diff)) over budget — worth a look at the big categories."
+        }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
@@ -184,29 +260,34 @@ struct BudgetView: View {
                         BudgetEmptyState(onManageCategories: { showingManageCategories = true })
                     } else {
                         List {
-                            // Hero cards live inside the list (chromeless rows)
-                            // so they scroll away with the categories.
+                            // Hero lives inside the list (chromeless rows)
+                            // so it scrolls away with the categories.
                             Section {
-                                HStack(alignment: .top, spacing: 12) {
-                                    SafeToSpendTile()
-                                    FinancialHealthTile()
-                                }
-                                BudgetHeroCard(
-                                    monthLabel: currentMonthLabel,
-                                    available: BudgetEngine.availableToBudget(
+                                SummitBudgetHero(
+                                    title: budgetTitle,
+                                    assigned: assignedTotal,
+                                    spent: monthOutflow,
+                                    availableToBudget: BudgetEngine.availableToBudget(
                                         transactions: transactions,
                                         budgetMonth: budgetMonth,
                                         year: engine.selectedYear,
                                         month: engine.selectedMonth
                                     ),
-                                    assigned: budgetMonth?.allocations.reduce(Decimal.zero) { $0 + $1.amount } ?? 0,
-                                    spent: monthOutflow,
-                                    ageOfMoneyDays: BudgetEngine.ageOfMoneyDays(transactions: transactions)
+                                    savingsRate: heroSavingsRate,
+                                    netWorthTrend: heroNetWorthTrend,
+                                    tiles: heroTiles,
+                                    insight: heroInsight
                                 )
+                                .listRowInsets(EdgeInsets())
+
+                                HStack(alignment: .top, spacing: 12) {
+                                    SafeToSpendTile()
+                                    FinancialHealthTile()
+                                }
+                                .listRowInsets(EdgeInsets(top: 4, leading: 24, bottom: 4, trailing: 24))
                             }
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
                             GettingStartedSection(transactionCount: transactions.count)
 
@@ -922,11 +1003,11 @@ struct CustomizeTabsView: View {
                 let saved = tabOrderRaw.split(separator: ",").compactMap { TabKind(rawValue: String($0)) }
                 let missing = TabKind.allCases.filter { !saved.contains($0) }
                 orderedKinds = saved + missing
-                accentColor = Color(hex: appAccentHex) ?? .accentColor
+                accentColor = Color(hex: appAccentHex) ?? SummitTheme.teal
                 useCustomBackground = !appBackgroundHex.isEmpty
-                backgroundColor = Color(hex: appBackgroundHex) ?? Color(.systemGroupedBackground)
+                backgroundColor = Color(hex: appBackgroundHex) ?? SummitTheme.slate
                 useCustomRow = !appRowBgHex.isEmpty
-                rowColor = Color(hex: appRowBgHex) ?? Color(.secondarySystemGroupedBackground)
+                rowColor = Color(hex: appRowBgHex) ?? SummitTheme.slate2
             }
             .onChange(of: accentColor) { _, newValue in
                 appAccentHex = newValue.toHex() ?? ""

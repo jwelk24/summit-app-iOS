@@ -51,8 +51,12 @@ struct RootView: View {
     @State private var showingReviewInbox = false
     @State private var showingWeeklyReview = false
     @State private var showingMonthRecap = false
-    @State private var showingWelcome = false
     @State private var showingWelcomeConnections = false
+    /// Mirrors OnboardingState.hasCompletedWelcome. The welcome overlay is
+    /// derived from this stored flag (not a one-shot @State set in onAppear)
+    /// so a dropped or mistimed onAppear during scene activation can never
+    /// strand the overlay hidden — the UI-test flake behind line-one launches.
+    @AppStorage(OnboardingState.welcomeDoneKey) private var welcomeDone = false
     /// Current stop of the guided feature tour; nil when no tour is running.
     @State private var tourIndex: Int? = nil
 
@@ -78,7 +82,10 @@ struct RootView: View {
         }
         // Tab bar on iPhone; sidebar on iPad and the Mac (Designed for iPad).
         .tabViewStyle(.sidebarAdaptable)
-        .tint(Color(hex: appAccentHex) ?? .accentColor)
+        .tint(Color(hex: appAccentHex) ?? SummitTheme.teal)
+        // Summit's signature look is the dark slate palette; system light
+        // mode is intentionally not supported (Customize can still recolor).
+        .preferredColorScheme(.dark)
         .monospacedDigit()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // The tour card lives in the inset (not an overlay) so the tab
@@ -143,32 +150,30 @@ struct RootView: View {
             }
         }
         .onAppear {
-            if OnboardingState.isUITestReset {
-                OnboardingState.resetForUITests()
-            } else {
+            // Existing users predate the welcome flow; mark it done before
+            // the first frame so they never see it. (UI-test resets happen
+            // earlier, in SummitApp.init.)
+            if !OnboardingState.isUITestReset {
                 OnboardingState.skipForExistingUser(context: modelContext)
             }
-            showingWelcome = !OnboardingState.hasCompletedWelcome
         }
         // The welcome flow is an overlay, not a fullScreenCover: a cover
         // presented from onAppear can be silently dropped while the scene is
         // still activating (first launch), but state-driven rendering can't.
-        .accessibilityHidden(showingWelcome)
+        .accessibilityHidden(!welcomeDone)
         .overlay {
-            if showingWelcome {
+            if !welcomeDone {
                 OnboardingWelcomeView(
                     onFinish: {
-                        OnboardingState.hasCompletedWelcome = true
-                        withAnimation(.smooth(duration: 0.3)) { showingWelcome = false }
+                        withAnimation(.smooth(duration: 0.3)) { welcomeDone = true }
                     },
                     onConnectBank: {
-                        OnboardingState.hasCompletedWelcome = true
-                        withAnimation(.smooth(duration: 0.3)) { showingWelcome = false }
+                        withAnimation(.smooth(duration: 0.3)) { welcomeDone = true }
                         showingWelcomeConnections = true
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemBackground).ignoresSafeArea())
+                .background(SummitTheme.slate.ignoresSafeArea())
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -285,13 +290,9 @@ struct SummitListBackground: ViewModifier {
     @AppStorage("appBackgroundHex") private var appBackgroundHex: String = ""
 
     func body(content: Content) -> some View {
-        if let color = Color(hex: appBackgroundHex) {
-            content
-                .scrollContentBackground(.hidden)
-                .background(color.ignoresSafeArea())
-        } else {
-            content
-        }
+        content
+            .scrollContentBackground(.hidden)
+            .background((Color(hex: appBackgroundHex) ?? SummitTheme.slate).ignoresSafeArea())
     }
 }
 
@@ -319,7 +320,7 @@ struct SummitReadableWidth: ViewModifier {
             content
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
-                .background((Color(hex: appBackgroundHex) ?? Color(.systemGroupedBackground)).ignoresSafeArea())
+                .background((Color(hex: appBackgroundHex) ?? SummitTheme.slate).ignoresSafeArea())
         } else {
             content
         }
@@ -332,11 +333,7 @@ struct SummitRowBackground: ViewModifier {
     @AppStorage("appRowBgHex") private var appRowBgHex: String = ""
 
     func body(content: Content) -> some View {
-        if let color = Color(hex: appRowBgHex) {
-            content.listRowBackground(color)
-        } else {
-            content
-        }
+        content.listRowBackground(Color(hex: appRowBgHex) ?? SummitTheme.slate2)
     }
 }
 

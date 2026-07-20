@@ -58,6 +58,12 @@ struct SummitApp: App {
         // Before launch finishes, so notification taps that cold-start the
         // app still route to their destination.
         NudgeRoutingDelegate.install()
+
+        // At process start, not view onAppear: the welcome overlay is derived
+        // from this flag, so it must be correct before the first frame.
+        if OnboardingState.isUITestReset {
+            OnboardingState.resetForUITests()
+        }
     }
 
     var body: some Scene {

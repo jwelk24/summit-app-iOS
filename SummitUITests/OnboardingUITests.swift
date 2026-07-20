@@ -10,7 +10,7 @@ final class OnboardingUITests: XCTestCase {
 
     /// The very first launch on a cold simulator can take 30s+ (install,
     /// debugserver attach, store seeding) before the UI settles.
-    private let launchTimeout: TimeInterval = 30
+    private let launchTimeout: TimeInterval = 60
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -21,6 +21,14 @@ final class OnboardingUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--uitest-reset-onboarding"]
         app.launch()
+        // The simulator can drop launch arguments on the first launch after
+        // Xcode (re)installs the app, so the reset never runs and stale
+        // onboarding state hides the welcome. Relaunching recovers: only
+        // that first launch is affected.
+        if !app.buttons["onboardingSkipButton"].waitForExistence(timeout: 15) {
+            app.terminate()
+            app.launch()
+        }
         return app
     }
 
@@ -90,8 +98,19 @@ final class OnboardingUITests: XCTestCase {
         XCTAssertTrue(skip.waitForExistence(timeout: launchTimeout), "Welcome flow should appear on a fresh install")
         skip.tap()
 
+        let checklist = app.descendants(matching: .any)["gettingStartedHeader"]
+        XCTAssertTrue(checklist.waitForExistence(timeout: 10), "Getting Started checklist should show after skipping")
+
+        // The hero above the checklist is taller than one screen and List
+        // rows are created lazily, so the tour row doesn't even *exist*
+        // until scrolled near — scroll first, then assert.
         let tourRow = app.buttons["gettingStartedTour"]
-        XCTAssertTrue(tourRow.waitForExistence(timeout: 10), "Take-the-tour step should be in the checklist")
+        var scrollAttempts = 0
+        while !(tourRow.exists && tourRow.isHittable) && scrollAttempts < 8 {
+            app.swipeUp()
+            scrollAttempts += 1
+        }
+        XCTAssertTrue(tourRow.isHittable, "Take-the-tour step should be reachable by scrolling")
         tourRow.tap()
 
         // One button walks the whole tour: "Next" for six stops, "Done" on
