@@ -30,7 +30,7 @@ private struct CategoryRow: Codable, Sendable {
     let deleted_at: Date?
 }
 
-private struct TransactionRow: Codable, Sendable {
+private struct TransactionSyncRow: Codable, Sendable {
     let id: UUID
     let household_id: UUID
     let account_id: UUID?
@@ -703,7 +703,7 @@ final class SyncService {
         let local = try context.fetch(FetchDescriptor<TransactionModel>())
             .filter { t in t.account.map { !localOnly.contains($0.id) } ?? true }
         let rows = local.map { t in
-            TransactionRow(id: t.id, household_id: householdID, account_id: t.account?.id, category_id: t.category?.id,
+            TransactionSyncRow(id: t.id, household_id: householdID, account_id: t.account?.id, category_id: t.category?.id,
                            date: t.date, amount: t.amount, merchant: t.merchant, memo: t.memo,
                            cleared: t.cleared, flag_color: t.flagColor, tags: t.tags.isEmpty ? nil : t.tags,
                            awaiting_refund: t.awaitingRefund ? true : nil,
@@ -715,7 +715,7 @@ final class SyncService {
     }
 
     private func pullTransactions(context: ModelContext, householdID: UUID) async throws -> Int {
-        let rows: [TransactionRow] = try await SupabaseService.shared.client
+        let rows: [TransactionSyncRow] = try await SupabaseService.shared.client
             .from("transactions").select()
             .eq("household_id", value: householdID.uuidString.lowercased())
             .execute().value

@@ -11,6 +11,9 @@ struct SummitBudgetHero: View {
         let spent: Decimal
         let budget: Decimal
         let index: Int
+        /// The user's per-category bar color, if picked; nil keeps the
+        /// tile on the theme's accent cycle.
+        var customColor: Color? = nil
     }
 
     let title: String
@@ -145,7 +148,7 @@ struct SummitBudgetHero: View {
 private struct SummitCategoryTile: View {
     let tile: SummitBudgetHero.CategoryTile
 
-    private var accent: Color { SummitTheme.accent(at: tile.index) }
+    private var accent: Color { tile.customColor ?? SummitTheme.accent(at: tile.index) }
     private var fraction: Double {
         guard tile.budget > 0 else { return 0 }
         return NSDecimalNumber(decimal: tile.spent).doubleValue / NSDecimalNumber(decimal: tile.budget).doubleValue

@@ -165,7 +165,8 @@ struct BudgetView: View {
                 name: entry.category.name,
                 spent: entry.spent,
                 budget: entry.budget,
-                index: index
+                index: index,
+                customColor: CategoryBarColor.hex(for: entry.category.id).flatMap { Color(hex: $0) }
             )
         }
     }
@@ -320,16 +321,23 @@ struct BudgetView: View {
 
                             ForEach(groups.sorted(by: { $0.sort < $1.sort })) { group in
                                 Section(group.name) {
-                                    ForEach(categories.filter { $0.group?.id == group.id }.sorted(by: { $0.sort < $1.sort })) { cat in
-                                        CategoryRow(
-                                            category: cat,
-                                            budgetMonth: budgetMonth,
-                                            year: engine.selectedYear,
-                                            month: engine.selectedMonth
-                                        )
+                                    // Two-column card grid in the hero-tile style;
+                                    // one chromeless row per group so the cards
+                                    // provide their own surfaces.
+                                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                                        ForEach(categories.filter { $0.group?.id == group.id }.sorted(by: { $0.sort < $1.sort })) { cat in
+                                            SummitCategoryCard(
+                                                category: cat,
+                                                budgetMonth: budgetMonth,
+                                                year: engine.selectedYear,
+                                                month: engine.selectedMonth
+                                            )
+                                        }
                                     }
+                                    .listRowInsets(EdgeInsets(top: 4, leading: 24, bottom: 4, trailing: 24))
+                                    .listRowBackground(Color.clear)
+                                    .listRowSeparator(.hidden)
                                 }
-                                .summitRowBackground()
                             }
                         }
                         .listRowSpacing(4)
@@ -1238,256 +1246,6 @@ private struct MoveMoneySheet: View {
     }
 }
 
-private struct CategoryRow: View {
-    @Environment(BudgetEngine.self) private var engine
-    @Environment(\.modelContext) private var context
-
-    @Query private var allMonths: [BudgetMonthModel]
-    @AppStorage("budgetRolloverEnabled") private var rolloverEnabled: Bool = false
-    /// Bumped when the per-category rollover override changes (it lives in
-    /// UserDefaults, which @AppStorage won't observe per-key-set) to re-render.
-    @State private var rolloverSettingsTick = false
-
-    let category: CategoryModel
-    let budgetMonth: BudgetMonthModel?
-    let year: Int
-    let month: Int
-
-    @State private var isEditing = false
-    @State private var editText: String = ""
-    @FocusState private var isFocused: Bool
-
-    private func projectedMonthlySpend(activity: Decimal) -> Decimal? {
-        let cal = Calendar.current
-        let now = Date()
-        let c = cal.dateComponents([.year, .month], from: now)
-        guard year == c.year, month == c.month else { return nil }
-        let spent = -activity
-        guard spent > 0 else { return nil }
-        let dayOfMonth = cal.component(.day, from: now)
-        guard dayOfMonth >= 5 else { return nil }
-        let daysInMonth = cal.range(of: .day, in: .month, for: now)?.count ?? 30
-        let daily = NSDecimalNumber(decimal: spent).doubleValue / Double(dayOfMonth)
-        return Decimal(daily * Double(daysInMonth))
-    }
-
-    private var rolloverAmount: Decimal {
-        guard rolloverEnabled, !BudgetRollover.isExcluded(category.id) else { return 0 }
-        let prevM = month == 1 ? 12 : month - 1
-        let prevY = month == 1 ? year - 1 : year
-        guard let prevMonth = allMonths.first(where: { $0.year == prevY && $0.month == prevM }) else { return 0 }
-        return max(0, BudgetEngine.available(for: category, in: prevMonth, year: prevY, month: prevM))
-    }
-
-    var body: some View {
-        let assigned = BudgetEngine.assigned(for: category, in: budgetMonth)
-        let activity = BudgetEngine.activity(for: category, year: year, month: month)
-        let available = BudgetEngine.available(for: category, in: budgetMonth, year: year, month: month)
-        let rolled = rolloverAmount
-
-        HStack(spacing: 10) {
-            SummitCategoryDot(color: summitCategoryColor(category.name))
-            goalIndicator(assigned: assigned, available: available)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(category.name)
-                Text("Activity \(currency(activity))  ·  Available \(currency(available))")
-                    .font(.caption)
-                    .foregroundStyle(available < 0 ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
-                    .monospacedDigit()
-                if rolled > 0 {
-                    Text("↩ \(currency(rolled)) rolled from last month")
-                        .font(.caption2)
-                        .foregroundStyle(.tint)
-                        .monospacedDigit()
-                }
-                if let goal = category.goals.first {
-                    let pace = GoalForecast.pace(
-                        goal: goal,
-                        category: category,
-                        assignedThisMonth: assigned,
-                        availableNow: available,
-                        currentYear: year,
-                        currentMonth: month,
-                        allMonths: allMonths
-                    )
-                    SummitPacePill(pace: pace)
-                        .padding(.top, 2)
-                } else if let pace = projectedMonthlySpend(activity: activity) {
-                    SpendingPacePill(projected: pace, budget: assigned)
-                        .padding(.top, 2)
-                }
-            }
-            Spacer()
-            if isEditing {
-                #if canImport(UIKit)
-                TextField("0", text: $editText)
-                    .keyboardType(.decimalPad)
-                    .focused($isFocused)
-                    .multilineTextAlignment(.trailing)
-                    .frame(minWidth: 70)
-                    .submitLabel(.done)
-                    .onSubmit { commit() }
-                #else
-                TextField("0", text: $editText)
-                    .focused($isFocused)
-                    .multilineTextAlignment(.trailing)
-                    .frame(minWidth: 70)
-                    .onSubmit { commit() }
-                #endif
-            } else {
-                Text(currency(assigned))
-                    .monospacedDigit()
-                    .frame(minWidth: 70, alignment: .trailing)
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 8)
-                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                    .contentShape(Rectangle())
-                    .onTapGesture { startEditing(assigned: assigned) }
-                    .contextMenu { quickAssignMenu(assigned: assigned, available: available) }
-            }
-        }
-        .onChange(of: isFocused) { _, focused in
-            if !focused && isEditing { commit() }
-        }
-    }
-
-    @ViewBuilder
-    private func quickAssignMenu(assigned: Decimal, available: Decimal) -> some View {
-        let last = BudgetEngine.lastMonthAssigned(for: category, currentYear: year, currentMonth: month, allMonths: allMonths)
-        let avg = BudgetEngine.averageAssigned(for: category, monthsBack: 3, currentYear: year, currentMonth: month, allMonths: allMonths)
-        let goal = category.goals.first
-
-        Button {
-            commitAmount(last)
-        } label: {
-            Label("Match Last Month  \(currency(last))", systemImage: "arrow.uturn.backward")
-        }
-        .disabled(last == 0)
-
-        Button {
-            commitAmount(avg)
-        } label: {
-            Label("3-Month Average  \(currency(avg))", systemImage: "chart.bar")
-        }
-        .disabled(avg == 0)
-
-        if let goal {
-            let target = goal.targetAmount
-            Button {
-                commitAmount(target)
-            } label: {
-                Label("Set to Goal  \(currency(target))", systemImage: "target")
-            }
-
-            if let needed = GoalForecast.neededThisMonth(
-                goal: goal,
-                availableNow: available,
-                assignedThisMonth: assigned,
-                currentYear: year,
-                currentMonth: month
-            ), needed > 0 {
-                Button {
-                    commitAmount(assigned + needed)
-                } label: {
-                    Label("Stay on Track  +\(currency(needed))", systemImage: "calendar.badge.checkmark")
-                }
-            }
-
-            let underfunded: Decimal = {
-                switch goal.type {
-                case .monthlyAmount: return max(0, target - assigned)
-                case .savingsTarget, .byDateTarget: return max(0, target - max(0, available))
-                }
-            }()
-            if underfunded > 0 {
-                Button {
-                    commitAmount(assigned + underfunded)
-                } label: {
-                    Label("Fund Underfunded  +\(currency(underfunded))", systemImage: "plus.circle")
-                }
-            }
-        }
-
-        if rolloverEnabled {
-            Divider()
-            let excluded = BudgetRollover.isExcluded(category.id)
-            Button {
-                BudgetRollover.setExcluded(category.id, !excluded)
-                rolloverSettingsTick.toggle()
-            } label: {
-                Label("Roll Over Unspent", systemImage: excluded ? "circle" : "checkmark.circle.fill")
-            }
-        }
-
-        Divider()
-
-        Button(role: .destructive) {
-            commitAmount(0)
-        } label: {
-            Label("Clear", systemImage: "xmark.circle")
-        }
-    }
-
-    private func commitAmount(_ amount: Decimal) {
-        let bm = budgetMonth ?? engine.ensureMonth(year: year, month: month, context: context)
-        engine.setAssigned(amount, to: category, in: bm, context: context)
-    }
-
-    @ViewBuilder
-    private func goalIndicator(assigned: Decimal, available: Decimal) -> some View {
-        if let goal = category.goals.first {
-            let progress = computeProgress(goal: goal, assigned: assigned, available: available)
-            let clamped = min(1.0, max(0.0, progress))
-            let color: Color = progress >= 1.0 ? .green : .accentColor
-            ZStack {
-                Circle().stroke(Color.gray.opacity(0.18), lineWidth: 3.5)
-                Circle()
-                    .trim(from: 0, to: clamped)
-                    .stroke(
-                        LinearGradient(colors: [color.opacity(0.7), color], startPoint: .top, endPoint: .bottom),
-                        style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                if progress >= 1.0 {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.green)
-                }
-            }
-            .frame(width: 22, height: 22)
-        } else {
-            Color.clear.frame(width: 22, height: 22)
-        }
-    }
-
-    private func computeProgress(goal: GoalModel, assigned: Decimal, available: Decimal) -> Double {
-        let target = NSDecimalNumber(decimal: goal.targetAmount).doubleValue
-        guard target > 0 else { return 0 }
-        switch goal.type {
-        case .monthlyAmount:
-            return NSDecimalNumber(decimal: assigned).doubleValue / target
-        case .savingsTarget, .byDateTarget:
-            return NSDecimalNumber(decimal: max(0, available)).doubleValue / target
-        }
-    }
-
-    private func startEditing(assigned: Decimal) {
-        editText = formatPlain(assigned)
-        isEditing = true
-        DispatchQueue.main.async { isFocused = true }
-    }
-
-    private func commit() {
-        defer {
-            isEditing = false
-            isFocused = false
-        }
-        let amount = Decimal(string: editText) ?? 0
-        let bm = budgetMonth ?? engine.ensureMonth(year: year, month: month, context: context)
-        engine.setAssigned(amount, to: category, in: bm, context: context)
-    }
-}
-
 // MARK: - TransactionsView
 
 struct TxFilter: Equatable {
@@ -2215,7 +1973,7 @@ struct TransactionsView: View {
     }
 }
 
-private struct TransactionRow: View {
+struct TransactionRow: View {
     let transaction: TransactionModel
     @AppStorage("cleanMerchantNames") private var cleanMerchantNames = true
     @AppStorage("merchantLogosEnabled") private var merchantLogos = false
@@ -4010,9 +3768,17 @@ private struct GroupEditor: View {
     }
 }
 
-private struct CategoryEditor: View {
+struct CategoryEditor: View {
     let editing: CategoryModel?
     let defaultGroup: CategoryGroupModel?
+
+    // Explicit because the private @State vars would make the synthesized
+    // memberwise init private, and the category detail sheet presents this
+    // editor from another file.
+    init(editing: CategoryModel?, defaultGroup: CategoryGroupModel?) {
+        self.editing = editing
+        self.defaultGroup = defaultGroup
+    }
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
