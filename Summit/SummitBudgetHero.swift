@@ -39,14 +39,18 @@ struct SummitBudgetHero: View {
     @AppStorage("userDisplayName") private var userDisplayName: String = ""
 
     private var greeting: String {
-        let timeOfDay: String
         switch Calendar.current.component(.hour, from: .now) {
-        case ..<12: timeOfDay = "Good morning"
-        case ..<17: timeOfDay = "Good afternoon"
-        default: timeOfDay = "Good evening"
+        case ..<12: "Good morning"
+        case ..<17: "Good afternoon"
+        default: "Good evening"
         }
+    }
+
+    /// The big serif line under the greeting: the user's name when set,
+    /// otherwise the budget title so it's never blank.
+    private var displayTitle: String {
         let name = userDisplayName.trimmingCharacters(in: .whitespaces)
-        return name.isEmpty ? timeOfDay : "\(timeOfDay), \(name)"
+        return name.isEmpty ? title : name
     }
 
     var body: some View {
@@ -56,7 +60,7 @@ struct SummitBudgetHero: View {
                     .font(.caption.weight(.medium))
                     .tracking(1)
                     .foregroundStyle(.secondary)
-                Text(title)
+                Text(displayTitle)
                     .font(.system(.title, design: .serif, weight: .bold))
             }
             .padding(.horizontal, 24)
