@@ -34,12 +34,19 @@ struct SummitBudgetHero: View {
         return (NSDecimalNumber(decimal: spent).doubleValue / NSDecimalNumber(decimal: assigned).doubleValue)
     }
 
+    /// The user's name for the greeting, empty when unset. Trimmed so a
+    /// stray space doesn't produce "Good evening, ".
+    @AppStorage("userDisplayName") private var userDisplayName: String = ""
+
     private var greeting: String {
+        let timeOfDay: String
         switch Calendar.current.component(.hour, from: .now) {
-        case ..<12: "Good morning"
-        case ..<17: "Good afternoon"
-        default: "Good evening"
+        case ..<12: timeOfDay = "Good morning"
+        case ..<17: timeOfDay = "Good afternoon"
+        default: timeOfDay = "Good evening"
         }
+        let name = userDisplayName.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? timeOfDay : "\(timeOfDay), \(name)"
     }
 
     var body: some View {
@@ -102,19 +109,9 @@ struct SummitBudgetHero: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Budget used \(usedFraction.formatted(.percent.precision(.fractionLength(0))))")
 
-            if availableToBudget != 0 {
-                HStack(spacing: 8) {
-                    Image(systemName: availableToBudget > 0 ? "tray.and.arrow.down" : "exclamationmark.triangle")
-                    Text(availableToBudget > 0
-                         ? "\(currencyWhole(availableToBudget)) left to assign"
-                         : "\(currencyWhole(-availableToBudget)) over-assigned")
-                        .fontWeight(.medium)
-                }
-                .font(.footnote)
-                .foregroundStyle(availableToBudget > 0 ? SummitTheme.teal : SummitTheme.rose)
+            LeftToAssignBanner(availableToBudget: availableToBudget, assigned: assigned)
                 .padding(.horizontal, 24)
-                .padding(.top, 12)
-            }
+                .padding(.top, 16)
 
             if !tiles.isEmpty {
                 Text("This Month")
@@ -140,6 +137,124 @@ struct SummitBudgetHero: View {
 
     private var currencySymbol: String {
         Locale.current.currencySymbol ?? "$"
+    }
+}
+
+/// The budgeting feedback banner: as you assign money to categories the
+/// "left to assign" figure counts down toward zero, and lands on a teal
+/// "Every dollar has a job" celebration when the whole plan is balanced.
+/// This is the one part of the hero that responds to assigning (vs. the
+/// mountain, which tracks real cash flow), so it's given real presence.
+private struct LeftToAssignBanner: View {
+    /// Income + carryover − assigned. Positive = money still to assign,
+    /// zero = fully budgeted, negative = over-assigned.
+    let availableToBudget: Decimal
+    let assigned: Decimal
+
+    private enum State {
+        case toAssign(Decimal)   // money still waiting for a job
+        case balanced            // every dollar assigned
+        case overAssigned(Decimal)
+        case empty               // nothing assigned yet and nothing to assign
+    }
+
+    private var state: State {
+        if availableToBudget > 0 { return .toAssign(availableToBudget) }
+        if availableToBudget < 0 { return .overAssigned(-availableToBudget) }
+        return assigned > 0 ? .balanced : .empty
+    }
+
+    private var accent: Color {
+        switch state {
+        case .toAssign, .balanced: SummitTheme.teal
+        case .overAssigned: SummitTheme.rose
+        case .empty: SummitTheme.lavender
+        }
+    }
+
+    private var icon: String {
+        switch state {
+        case .toAssign: "tray.and.arrow.down.fill"
+        case .balanced: "checkmark.seal.fill"
+        case .overAssigned: "exclamationmark.triangle.fill"
+        case .empty: "tray.fill"
+        }
+    }
+
+    private var headline: String {
+        switch state {
+        case .balanced: "Every dollar has a job"
+        case .overAssigned: "Over-assigned"
+        case .empty: "Nothing to assign yet"
+        case .toAssign: "Left to assign"
+        }
+    }
+
+    private var subtitle: String {
+        switch state {
+        case .toAssign: "Give each dollar a job in a category."
+        case .balanced: "Your whole budget is assigned — nicely done."
+        case .overAssigned: "You've assigned more than you have. Pull some back."
+        case .empty: "Add income or assign from savings to get started."
+        }
+    }
+
+    /// The figure shown large; drives the numeric-text count animation.
+    private var amount: Decimal {
+        switch state {
+        case .toAssign(let a), .overAssigned(let a): a
+        case .balanced, .empty: 0
+        }
+    }
+
+    private var showsAmount: Bool {
+        switch state {
+        case .toAssign, .overAssigned: true
+        case .balanced, .empty: false
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(accent)
+                .frame(width: 44, height: 44)
+                .background(accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
+                .contentTransition(.symbolEffect(.replace))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(headline.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.1)
+                    .foregroundStyle(accent)
+                if showsAmount {
+                    Text(currencyWhole(amount))
+                        .font(.system(.title2, design: .serif, weight: .bold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText(value: doubleValue(amount)))
+                        .foregroundStyle(.primary)
+                }
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .strokeBorder(accent.opacity(0.25), lineWidth: 1)
+        )
+        .animation(.spring(response: 0.45, dampingFraction: 0.8), value: availableToBudget)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(headline). \(showsAmount ? currencyWhole(amount) : ""). \(subtitle)")
+    }
+
+    private func doubleValue(_ d: Decimal) -> Double {
+        NSDecimalNumber(decimal: d).doubleValue
     }
 }
 

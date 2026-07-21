@@ -85,6 +85,11 @@ struct OnboardingWelcomeView: View {
     @State private var page = 0
     private let lastPage = 2
 
+    /// Same key the Budget greeting and Settings read; bound directly so a
+    /// name typed here is saved as the user types, no plumbing needed.
+    @AppStorage("userDisplayName") private var userDisplayName: String = ""
+    @FocusState private var nameFocused: Bool
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -144,6 +149,23 @@ struct OnboardingWelcomeView: View {
             title: "Welcome to Summit",
             subtitle: "Budget, net worth, and the road ahead — in one place."
         ) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("What should we call you?")
+                    .font(.subheadline.weight(.semibold))
+                TextField("Your name", text: $userDisplayName)
+                    .textContentType(.givenName)
+                    .submitLabel(.done)
+                    .focused($nameFocused)
+                    .onSubmit { nameFocused = false }
+                    .padding(12)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                    .accessibilityIdentifier("onboardingNameField")
+                Text("We'll use it to greet you. You can change it anytime in Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 4)
+
             OnboardingFeatureRow(
                 icon: "list.bullet.rectangle",
                 title: "Give every dollar a job",

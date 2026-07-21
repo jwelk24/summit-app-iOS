@@ -4,6 +4,9 @@ import SwiftUI
 /// Actions menu so that menu can stay purely about budgeting.
 struct SettingsView: View {
     @AppStorage("settingsTitle") private var settingsTitle: String = "Settings"
+    /// Shown in the Budget hero greeting ("Good evening, Jayson"); empty
+    /// means the greeting stays name-less.
+    @AppStorage("userDisplayName") private var userDisplayName: String = ""
 
     @State private var showingSync = false
     @State private var showingSettleUp = false
@@ -16,6 +19,22 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    HStack {
+                        Image(systemName: "person.crop.circle")
+                            .foregroundStyle(.secondary)
+                        TextField("Your Name", text: $userDisplayName)
+                            .textContentType(.givenName)
+                            .submitLabel(.done)
+                            .accessibilityIdentifier("userDisplayNameField")
+                    }
+                } header: {
+                    Text("Profile")
+                } footer: {
+                    Text("Used to greet you on the Budget screen.")
+                }
+                .summitRowBackground()
+
                 Section("Account") {
                     settingsRow("Sync & Account", systemImage: "icloud", identifier: "syncAccountButton") {
                         showingSync = true
